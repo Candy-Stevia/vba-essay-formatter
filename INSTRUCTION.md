@@ -32,10 +32,10 @@ If an end-user provides you with this document and asks you to format, normalize
 
 ### 1.1. Installation & Uninstallation (One-Click or Manual)
 - **Supported Platform:** Microsoft Word for Windows Desktop (**Word 2013 / v15.0 or newer**, including Word 2016, 2019, 2021, 2024, and Microsoft 365; both 32-bit and 64-bit). *Not supported on macOS, Word Online (Web), or mobile.*
-- **Method A — Automatic (`Install.bat`):**
+- **Method A — Automatic (`install-or-update.bat`):**
   1. Close all open Microsoft Word windows.
-  2. Double-click **`Install.bat`** (located alongside `AcademicFormatter.dotm`).
-  3. The installer verifies your Word version, detects your active Word `STARTUP` folder, copies `AcademicFormatter.dotm`, strips Windows *Mark of the Web* (`Zone.Identifier`), verifies the SHA-256 checksum, and checks Trust Center macro policies.
+  2. Double-click **`install-or-update.bat`** (located alongside `AcademicFormatter.dotm`).
+  3. The installer checks GitHub for a newer `.dotm` (or falls back to the local file if offline/blocked), detects your Word version and active `STARTUP` folder, copies `AcademicFormatter.dotm`, strips Windows *Mark of the Web* (`Zone.Identifier`), verifies the SHA-256 checksum, and checks Trust Center macro policies.
 - **Method B — Manual Copy:**
   1. Close Microsoft Word.
   2. Press `Win + R`, type `%APPDATA%\Microsoft\Word\STARTUP`, and press `Enter`.

@@ -17,7 +17,7 @@ It doesn't use AI inside Word, so it runs strictly on hard-coded rules, regexes,
 1. Go to the **[Releases](../../releases)** page and download **`AcademicFormatter_v1.0.2.zip`**.
 2. Extract the zip folder anywhere on your computer.
 3. Close all open Microsoft Word windows.
-4. Double-click **`Install.bat`** (this unblocks Windows security flags and copies `AcademicFormatter.dotm` into your Word `STARTUP` folder).
+4. Double-click **`install-or-update.bat`** (this checks GitHub for a newer `.dotm` when online, falls back to the local file if offline/blocked, unblocks Windows security flags, and copies `AcademicFormatter.dotm` into your Word `STARTUP` folder).
 5. Open Word. You'll see a new **Formatter Macro** tab on the Ribbon.
 
 To remove the add-in at any time, close all Word windows and double-click **`Uninstall.bat`**.

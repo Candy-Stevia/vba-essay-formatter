@@ -1,19 +1,12 @@
 @echo off
 setlocal
-title Academic Formatter Macro - Installer (Cai Dat)
+title Academic Formatter Macro - Install or Update (Cai Dat / Cap Nhat)
 echo ============================================================================
-echo  ACADEMIC FORMATTER MACRO - AUTO INSTALLER (CAI DAT TU DONG)
+echo  ACADEMIC FORMATTER MACRO - INSTALL OR UPDATE (CAI DAT / CAP NHAT TU DONG)
 echo ============================================================================
 echo.
 
 set "SRC_DOTM=%~dp0AcademicFormatter.dotm"
-if not exist "%SRC_DOTM%" (
-    echo [ERROR] Missing AcademicFormatter.dotm next to Install.bat.
-    echo [LOI] Khong tim thay file AcademicFormatter.dotm cung thu muc.
-    echo.
-    pause
-    exit /b 1
-)
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$c = (Get-Content -LiteralPath '%~f0' -Raw) -split ('#__' + 'PS_START__'), 2; Invoke-Expression $c[1]"
 set "EC=%errorlevel%"
@@ -26,7 +19,91 @@ exit /b %EC%
 
 #__PS_START__
 $ErrorActionPreference = 'Stop'
-$src = $env:SRC_DOTM
+$localSrc = $env:SRC_DOTM
+$hasLocal = Test-Path $localSrc
+$installSrc = $localSrc
+
+$releaseUrl = 'https://github.com/Candy-Stevia/vba-essay-formatter/releases/latest/download/AcademicFormatter.dotm'
+$rawMainUrl = 'https://raw.githubusercontent.com/Candy-Stevia/vba-essay-formatter/main/AcademicFormatter.dotm'
+$manualUrl = 'https://github.com/Candy-Stevia/vba-essay-formatter/releases/latest'
+
+$tmpFile = Join-Path $env:TEMP ('AF_update_' + [guid]::NewGuid().ToString('N') + '.dotm')
+$downloadedOk = $false
+
+Write-Host '[CHECK] Checking GitHub for latest version... (Dang kiem tra ban moi tren GitHub...)' -ForegroundColor Cyan
+
+try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $urls = @($releaseUrl, $rawMainUrl)
+    $lastEx = $null
+    foreach ($u in $urls) {
+        try {
+            Invoke-WebRequest -Uri $u -OutFile $tmpFile -TimeoutSec 5 -UseBasicParsing
+            $downloadedOk = $true
+            break
+        } catch {
+            $lastEx = $_
+            if ($_.Exception.Response -and $_.Exception.Response.StatusCode.value__ -eq 404) {
+                continue
+            }
+            throw
+        }
+    }
+    if (-not $downloadedOk -and $lastEx) { throw $lastEx }
+
+    try { Unblock-File -Path $tmpFile -ErrorAction SilentlyContinue } catch {}
+    if (-not (Test-Path $tmpFile)) {
+        throw [System.UnauthorizedAccessException]::new('Downloaded file was removed or blocked by security software.')
+    }
+    $fi = Get-Item $tmpFile
+    if ($fi.Length -lt 50000) {
+        throw [System.InvalidOperationException]::new('Downloaded file is too small or invalid.')
+    }
+    $bytes = [System.IO.File]::ReadAllBytes($tmpFile)
+    if ($bytes.Length -lt 2 -or $bytes[0] -ne 0x50 -or $bytes[1] -ne 0x4B) {
+        throw [System.InvalidOperationException]::new('Downloaded file is not a valid .dotm archive.')
+    }
+
+    $remoteHash = (Get-FileHash $tmpFile -Algorithm SHA256).Hash
+    $localHash = $null
+    if ($hasLocal) {
+        $localHash = (Get-FileHash $localSrc -Algorithm SHA256).Hash
+    }
+
+    if ($localHash -and $remoteHash -eq $localHash) {
+        Write-Host '[UP TO DATE] You already have the latest version on this PC.' -ForegroundColor Green
+        Write-Host '[MOI NHAT] Ban dang su dung phien ban moi nhat co san tren may.' -ForegroundColor Green
+        $installSrc = $localSrc
+    } else {
+        Write-Host '[UPDATE] Newer version found on GitHub! Using downloaded AcademicFormatter.dotm.' -ForegroundColor Green
+        Write-Host '[CAP NHAT] Da co phien ban moi hon tren GitHub! Dang nap ban moi.' -ForegroundColor Green
+        $installSrc = $tmpFile
+        if ($hasLocal) {
+            try { Copy-Item -Path $tmpFile -Destination $localSrc -Force -ErrorAction SilentlyContinue } catch {}
+        }
+    }
+} catch {
+    $msg = $_.Exception.Message
+    $isBlocked = ($_.Exception -is [System.UnauthorizedAccessException]) -or ($msg -match 'denied|blocked|virus|defender|antivirus|security|Unauthorized')
+    if ($isBlocked) {
+        Write-Host '[BLOCKED] Could not download new file (possibly blocked by Windows Defender or security policy).' -ForegroundColor Yellow
+        Write-Host "          You can download the latest version manually at: $manualUrl" -ForegroundColor Yellow
+        Write-Host '[BI CHAN] Khong tai duoc file moi (co the bi Windows Defender chan).' -ForegroundColor Yellow
+        Write-Host "          Ban co the len $manualUrl de tai ban moi nhat." -ForegroundColor Yellow
+    } else {
+        Write-Host '[OFFLINE] Could not reach GitHub. Using local AcademicFormatter.dotm on this PC.' -ForegroundColor Yellow
+        Write-Host '[NGOAI TUYEN] Khong ket noi duoc GitHub. Dang lay file co san tren may de nap vao Word.' -ForegroundColor Yellow
+    }
+
+    if (-not $hasLocal) {
+        Write-Host '[ERROR] No local AcademicFormatter.dotm found next to install-or-update.bat.' -ForegroundColor Red
+        Write-Host '[LOI] Khong tim thay file AcademicFormatter.dotm co san cung thu muc.' -ForegroundColor Red
+        if (Test-Path $tmpFile) { Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue }
+        exit 1
+    }
+    $installSrc = $localSrc
+}
+
 $wordExe = $null
 $majorVer = $null
 
@@ -57,6 +134,7 @@ if (-not $wordExe) {
 if (-not $wordExe) {
     Write-Host '[ERROR] Microsoft Word not found on this PC.' -ForegroundColor Red
     Write-Host '[LOI] Khong tim thay Microsoft Word tren may nay.' -ForegroundColor Red
+    if (Test-Path $tmpFile) { Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue }
     exit 2
 }
 
@@ -68,6 +146,7 @@ Write-Host "Detected Microsoft Word v$majorVer ($wordExe)" -ForegroundColor Cyan
 if ($majorVer -lt 15) {
     Write-Host '[ERROR] Word 2013 (v15) or newer is required. Your version is unsupported.' -ForegroundColor Red
     Write-Host '[LOI] Can Microsoft Word 2013 tro len. Phien ban hien tai khong ho tro.' -ForegroundColor Red
+    if (Test-Path $tmpFile) { Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue }
     exit 3
 }
 
@@ -93,11 +172,12 @@ $dest = Join-Path $startupDir 'AcademicFormatter.dotm'
 $wordRunning = Get-Process -Name 'WINWORD' -ErrorAction SilentlyContinue
 
 try {
-    Copy-Item -Path $src -Destination $dest -Force
+    Copy-Item -Path $installSrc -Destination $dest -Force
 } catch {
+    if ($tmpFile -and (Test-Path $tmpFile)) { Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue }
     if ($wordRunning) {
         Write-Host '[ERROR] Word is open and locking AcademicFormatter.dotm. Close Word and run again.' -ForegroundColor Red
-        Write-Host '[LOI] Word dang mo va khoa file. Hay dong Word roi chay lai Install.bat.' -ForegroundColor Red
+        Write-Host '[LOI] Word dang mo va khoa file. Hay dong Word roi chay lai install-or-update.bat.' -ForegroundColor Red
         exit 4
     }
     Write-Host "[ERROR] Copy failed: $($_.Exception.Message)" -ForegroundColor Red
@@ -107,8 +187,10 @@ try {
 
 try { Unblock-File -Path $dest -ErrorAction SilentlyContinue } catch {}
 
-$srcHash = (Get-FileHash $src -Algorithm SHA256).Hash
+$srcHash = (Get-FileHash $installSrc -Algorithm SHA256).Hash
 $dstHash = (Get-FileHash $dest -Algorithm SHA256).Hash
+if (Test-Path $tmpFile) { Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue }
+
 if ($srcHash -ne $dstHash) {
     Write-Host '[ERROR] File verification failed (SHA-256 mismatch).' -ForegroundColor Red
     Write-Host '[LOI] Kiem tra toan ven file that bai.' -ForegroundColor Red
