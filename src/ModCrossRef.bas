@@ -24,57 +24,25 @@ Private Function CanonicalKeyword(ByVal rawKw As String, ByRef outKind As String
     Dim k As String
     k = LCase$(Trim$(rawKw))
     Select Case k
-        Case "table"
-            outKind = "TBL"
-            CanonicalKeyword = "Table"
-        Case ModConstants.Uni("b\u1ea3ng"), "bang"
-            outKind = "TBL"
-            CanonicalKeyword = ModConstants.Uni("B\u1ea3ng")
-        Case "figure"
-            outKind = "FIG"
-            CanonicalKeyword = "Figure"
+        Case "table": outKind = "TBL": CanonicalKeyword = "Table"
+        Case ModConstants.Uni("b\u1ea3ng"), "bang": outKind = "TBL": CanonicalKeyword = ModConstants.Uni("B\u1ea3ng")
+        Case "figure": outKind = "FIG": CanonicalKeyword = "Figure"
         Case "fig.", "fig"
             outKind = "FIG"
             If Right$(k, 1) = "." Then CanonicalKeyword = "Fig." Else CanonicalKeyword = "Fig"
-        Case "chart"
-            outKind = "FIG"
-            CanonicalKeyword = "Chart"
-        Case "diagram"
-            outKind = "FIG"
-            CanonicalKeyword = "Diagram"
-        Case ModConstants.Uni("h\u00ecnh"), "hinh"
-            outKind = "FIG"
-            CanonicalKeyword = ModConstants.Uni("H\u00ecnh")
-        Case ModConstants.Uni("s\u01a1 \u0111\u1ed3")
-            outKind = "FIG"
-            CanonicalKeyword = ModConstants.Uni("S\u01a1 \u0111\u1ed3")
-        Case ModConstants.Uni("bi\u1ec3u \u0111\u1ed3")
-            outKind = "FIG"
-            CanonicalKeyword = ModConstants.Uni("Bi\u1ec3u \u0111\u1ed3")
-        Case ModConstants.Uni("\u0111\u1ed3 th\u1ecb")
-            outKind = "FIG"
-            CanonicalKeyword = ModConstants.Uni("\u0110\u1ed3 th\u1ecb")
-        Case "chapter"
-            outKind = "CHAP"
-            CanonicalKeyword = "Chapter"
-        Case ModConstants.Uni("ch\u01b0\u01a1ng")
-            outKind = "CHAP"
-            CanonicalKeyword = ModConstants.Uni("Ch\u01b0\u01a1ng")
-        Case "appendix"
-            outKind = "APP"
-            CanonicalKeyword = "Appendix"
-        Case ModConstants.Uni("ph\u1ee5 l\u1ee5c")
-            outKind = "APP"
-            CanonicalKeyword = ModConstants.Uni("Ph\u1ee5 l\u1ee5c")
-        Case "section"
-            outKind = "SEC"
-            CanonicalKeyword = "Section"
-        Case ModConstants.Uni("m\u1ee5c")
-            outKind = "SEC"
-            CanonicalKeyword = ModConstants.Uni("M\u1ee5c")
-        Case ModConstants.Uni("ph\u1ea7n")
-            outKind = "SEC"
-            CanonicalKeyword = ModConstants.Uni("Ph\u1ea7n")
+        Case "chart": outKind = "FIG": CanonicalKeyword = "Chart"
+        Case "diagram": outKind = "FIG": CanonicalKeyword = "Diagram"
+        Case ModConstants.Uni("h\u00ecnh"), "hinh": outKind = "FIG": CanonicalKeyword = ModConstants.Uni("H\u00ecnh")
+        Case ModConstants.Uni("s\u01a1 \u0111\u1ed3"): outKind = "FIG": CanonicalKeyword = ModConstants.Uni("S\u01a1 \u0111\u1ed3")
+        Case ModConstants.Uni("bi\u1ec3u \u0111\u1ed3"): outKind = "FIG": CanonicalKeyword = ModConstants.Uni("Bi\u1ec3u \u0111\u1ed3")
+        Case ModConstants.Uni("\u0111\u1ed3 th\u1ecb"): outKind = "FIG": CanonicalKeyword = ModConstants.Uni("\u0110\u1ed3 th\u1ecb")
+        Case "chapter": outKind = "CHAP": CanonicalKeyword = "Chapter"
+        Case ModConstants.Uni("ch\u01b0\u01a1ng"): outKind = "CHAP": CanonicalKeyword = ModConstants.Uni("Ch\u01b0\u01a1ng")
+        Case "appendix": outKind = "APP": CanonicalKeyword = "Appendix"
+        Case ModConstants.Uni("ph\u1ee5 l\u1ee5c"): outKind = "APP": CanonicalKeyword = ModConstants.Uni("Ph\u1ee5 l\u1ee5c")
+        Case "section": outKind = "SEC": CanonicalKeyword = "Section"
+        Case ModConstants.Uni("m\u1ee5c"): outKind = "SEC": CanonicalKeyword = ModConstants.Uni("M\u1ee5c")
+        Case ModConstants.Uni("ph\u1ea7n"): outKind = "SEC": CanonicalKeyword = ModConstants.Uni("Ph\u1ea7n")
     End Select
 End Function
 
@@ -94,8 +62,9 @@ Private Sub BuildTargetIndex(ByVal doc As Document, ByRef snapshots() As Paragra
     re.IgnoreCase = True
     re.Global = False
 
-    Dim patChap As String, patApp As String, patSec As String, patTbl As String, patFig As String
+    Dim patChap As String, patPart As String, patApp As String, patSec As String, patTbl As String, patFig As String
     patChap = "^(?:Chapter|" & ModConstants.Uni("Ch\u01b0\u01a1ng") & ")\s+([A-Za-z0-9]+)\s*[:\.]"
+    patPart = "^" & ModConstants.Uni("Ph\u1ea7n") & "\s+([A-Za-z0-9]+)\s*[:\.]"
     patApp = "^(?:Appendix|" & ModConstants.Uni("Ph\u1ee5 l\u1ee5c") & ")(?:\s+([A-Za-z0-9]+))?(?:\s*[:\.]|$)"
     patSec = "^(\d+(?:\.\d+)+)\.\s+"
     patTbl = "^(?:Table|" & ModConstants.Uni("B(?:\u1ea3|a)ng") & ")\s+(" & ModLocale.NumToken() & ")" & ModLocale.CaptionSep()
@@ -115,10 +84,21 @@ Private Sub BuildTargetIndex(ByVal doc As Document, ByRef snapshots() As Paragra
                     Set m = re.Execute(txt)(0)
                     RegisterTarget dictBm, dictTip, "CHAP|" & UCase$(m.SubMatches(0)), bm, txt
                 Else
-                    re.Pattern = patApp
+                    re.Pattern = patPart
                     If re.Test(txt) Then
                         Set m = re.Execute(txt)(0)
-                        RegisterTarget dictBm, dictTip, "APP|" & UCase$(Trim$(m.SubMatches(0))), bm, txt
+                        RegisterTarget dictBm, dictTip, "SEC|" & UCase$(m.SubMatches(0)), bm, txt
+                    ElseIf ModLocale.IsRomanLevel1(txt) Then
+                        Dim sepPos As Long
+                        sepPos = InStr(txt, ".")
+                        If sepPos = 0 Or (InStr(txt, ":") > 0 And InStr(txt, ":") < sepPos) Then sepPos = InStr(txt, ":")
+                        If sepPos > 1 Then RegisterTarget dictBm, dictTip, "SEC|" & UCase$(Trim$(Left$(txt, sepPos - 1))), bm, txt
+                    Else
+                        re.Pattern = patApp
+                        If re.Test(txt) Then
+                            Set m = re.Execute(txt)(0)
+                            RegisterTarget dictBm, dictTip, "APP|" & UCase$(Trim$(m.SubMatches(0))), bm, txt
+                        End If
                     End If
                 End If
             End If
@@ -230,12 +210,21 @@ Private Sub ApplySingleCrossRef(ByVal doc As Document, ByVal matchRng As Range, 
     End If
 End Sub
 
+Private Function IsUpperRomanToken(ByVal tok As String) As Boolean
+    If Len(tok) = 0 Or tok <> UCase$(tok) Then Exit Function
+    Dim k As Long, ch As String
+    For k = 1 To Len(tok)
+        ch = Mid$(tok, k, 1)
+        If ch <> "I" And ch <> "V" And ch <> "X" Then Exit Function
+    Next k
+    IsUpperRomanToken = True
+End Function
+
 Private Function BuildCrossRefPattern() As String
     Dim kwNum As String, kwId As String, kwApp As String
     kwNum = "Table|" & ModConstants.Uni("B(?:\u1ea3|a)ng") & "|Figure|Fig\.?|Chart|Diagram|" & _
-            ModConstants.Uni("H\u00ecnh|S\u01a1 \u0111\u1ed3|Bi\u1ec3u \u0111\u1ed3|\u0110\u1ed3 th\u1ecb") & _
-            "|Section|" & ModConstants.Uni("M\u1ee5c|Ph\u1ea7n")
-    kwId = "Chapter|" & ModConstants.Uni("Ch\u01b0\u01a1ng")
+            ModConstants.Uni("H\u00ecnh|S\u01a1 \u0111\u1ed3|Bi\u1ec3u \u0111\u1ed3|\u0110\u1ed3 th\u1ecb")
+    kwId = "Chapter|" & ModConstants.Uni("Ch\u01b0\u01a1ng") & "|Section|" & ModConstants.Uni("M\u1ee5c|Ph\u1ea7n")
     kwApp = "Appendix|" & ModConstants.Uni("Ph\u1ee5 l\u1ee5c")
     Dim numTok As String
     numTok = "(?=[A-Za-z0-9.\-_]*\d)[A-Za-z0-9]+(?:[\.\-_][A-Za-z0-9]+)*"
@@ -243,7 +232,7 @@ Private Function BuildCrossRefPattern() As String
     pfxBound = ModConstants.Uni("(^|[^A-Za-z0-9\u00C0-\u1EF9_])")
     Dim altNum As String, altId As String, altApp As String
     altNum = "(" & kwNum & ")\s+(" & numTok & ")(\.?)"
-    altId = "(" & kwId & ")\s+([A-Za-z0-9]+)(\.?)"
+    altId = "(" & kwId & ")\s+([A-Za-z0-9]+(?:[\.\-_][A-Za-z0-9]+)*)(\.?)"
     altApp = "(" & kwApp & ")(?:\s+([A-Za-z0-9]+))?(\.?)"
     BuildCrossRefPattern = pfxBound & "(?:" & altNum & "|" & altId & "|" & altApp & ")" & ModConstants.Uni("(?![A-Za-z0-9\u00C0-\u1EF9_])")
 End Function
@@ -270,6 +259,9 @@ Private Function ResolveMatchTarget(ByVal m As Object, ByVal txt As String, _
     Dim kind As String, canKw As String
     canKw = CanonicalKeyword(rawKw, kind)
     If Len(canKw) = 0 Then Exit Function
+    If kind = "SEC" And Not (rawId Like "*[0-9]*") Then
+        If Not IsUpperRomanToken(rawId) Then Exit Function
+    End If
 
     Dim key As String
     key = kind & "|" & UCase$(rawId)
