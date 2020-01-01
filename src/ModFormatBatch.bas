@@ -59,6 +59,7 @@ Public Sub FormatNormalBatch(ByVal doc As Document, ByVal rStart As Long, _
     rng.ParagraphFormat.Alignment = 3
     rng.ParagraphFormat.FirstLineIndent = indentPts
     rng.ParagraphFormat.LeftIndent = 0#
+    ModFormatSingle.SafeSetOutlineLevel rng, 10
     
     If lineSpacingMode <> "ls_keep" Then
         ModFormatCore.ApplyLineSpacing rng, lineSpacingMode

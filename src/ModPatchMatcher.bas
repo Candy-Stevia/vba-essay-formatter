@@ -10,6 +10,7 @@ Option Explicit
 
 Public Const OP_KIND_FIX As Long = 1
 Public Const OP_KIND_CITE As Long = 2
+Public Const OP_KIND_STRUCT As Long = 3
 Private Const MAX_HEADING_LEN As Long = 350
 
 Public Type RefTargetInfo
@@ -80,27 +81,6 @@ Public Function IsIdentChar(ByVal ch As String) As Boolean
     c = AscW(ch) And &HFFFF&
     IsIdentChar = (c >= 48 And c <= 57) Or (c >= 65 And c <= 90) Or (c >= 97 And c <= 122) Or c = 95 Or (c >= &HC0 And c <= &H1EF9)
 End Function
-
-Public Sub UpdateRefZoneStateText(ByVal cleanTxt As String, ByRef inRefZone As Boolean)
-    Static reStrip As Object
-    If reStrip Is Nothing Then
-        Set reStrip = CreateObject("VBScript.RegExp")
-        reStrip.IgnoreCase = True
-        reStrip.Global = False
-        reStrip.Pattern = "^(?:(?:chapter|" & ModConstants.Uni("ch\u01b0\u01a1ng") & "|part|" & _
-                          ModConstants.Uni("ph\u1ea7n") & ")\s+[a-z0-9]+\s*[:\.\-]?\s*|(?:\d+(?:\.\d+)*|[ivxlcdm]+)\s*[:\.\-]?\s+)"
-    End If
-    Dim low As String
-    low = Trim$(reStrip.Replace(LCase$(Trim$(cleanTxt)), ""))
-    If Left$(low, 9) = "reference" Or Left$(low, 12) = "bibliography" Or _
-       Left$(low, 18) = ModConstants.Uni("t\u00e0i li\u1ec7u tham kh\u1ea3o") Or _
-       Left$(low, 27) = ModConstants.Uni("danh m\u1ee5c t\u00e0i li\u1ec7u tham kh\u1ea3o") Then
-        inRefZone = True
-    ElseIf Left$(low, 8) = "appendix" Or Left$(low, 10) = "appendices" Or Left$(low, 8) = "glossary" Or _
-           Left$(low, 8) = ModConstants.Uni("ph\u1ee5 l\u1ee5c") Then
-        inRefZone = False
-    End If
-End Sub
 
 Public Sub NormalizeWithPosMap(ByVal rawTxt As String, ByRef outNorm As String, _
                                 ByRef outPosStart() As Long, ByRef outPosEnd() As Long, _
@@ -232,55 +212,70 @@ Public Function ScanDocForPatch(ByVal doc As Document, ByRef outMarkers As Marke
     If outMarkers.HasContentEnd Then endBodyP = outMarkers.ContentEndParaIndex - 1 Else endBodyP = totalParas
     If startP > totalParas Then Exit Function
     Dim cap As Long
-    cap = totalParas - startP + 1
+    cap = totalParas
     If cap < 8 Then cap = 8
     ReDim outParas(1 To cap)
 
-    Dim docHasMath As Boolean, inRefZone As Boolean, p As Paragraph, pIdx As Long
+    Dim docHasMath As Boolean, inRefZone As Boolean, p As Paragraph, pIdx As Long, refCls As Long
     Dim rng As Range, rawTxt As String, normTxt As String, ps() As Long, pe() As Long, nLen As Long
     Dim inTbl As Boolean, isL1 As Boolean, isHead As Boolean, isExcl As Boolean, stName As String
+    Dim exclS() As Long, exclE() As Long, exclCount As Long
+    ModPatchDom.CollectExcludedSpans doc, exclS, exclE, exclCount
     docHasMath = (doc.OMaths.Count > 0)
     inRefZone = False
     pIdx = 0
     For Each p In doc.Paragraphs
         pIdx = pIdx + 1
-        If pIdx >= startP Then
-            Set rng = p.Range
-            rawTxt = rng.Text
-            NormalizeWithPosMap rawTxt, normTxt, ps, pe, nLen
-            If nLen > 0 And Not reMark.Test(normTxt) Then
-                inTbl = ModTableIndex.IsRangeInTable(rng)
-                isL1 = False
-                isHead = False
-                isExcl = False
-                If docHasMath Then isExcl = IsMathBlockOnly(rng, rawTxt)
-                If Not isExcl And Not inTbl And nLen <= MAX_HEADING_LEN Then
+        Set rng = p.Range
+        rawTxt = rng.Text
+        NormalizeWithPosMap rawTxt, normTxt, ps, pe, nLen
+        If nLen > 0 And Not reMark.Test(normTxt) Then
+            inTbl = ModTableIndex.IsRangeInTable(rng)
+            isL1 = False
+            isHead = False
+            isExcl = False
+            If exclCount > 0 Then isExcl = ModPatchDom.IsInExcludedSpans(rng.Start, rng.End, exclS, exclE, exclCount)
+            If Not isExcl And docHasMath Then isExcl = IsMathBlockOnly(rng, rawTxt)
+            If Not isExcl And Not inTbl And nLen <= MAX_HEADING_LEN Then
+                If reL1.Test(normTxt) Or ModLocale.IsRomanLevel1(normTxt) Then isL1 = True
+                If Not isL1 Then
                     stName = ""
                     On Error Resume Next
                     stName = LCase$(rng.Style.NameLocal)
                     On Error GoTo 0
-                    If reL1.Test(normTxt) Or ModLocale.IsRomanLevel1(normTxt) Or Left$(stName, 9) = "heading 1" Then isL1 = True
-                    If isL1 Or reL2.Test(normTxt) Or reL3.Test(normTxt) Or reL4.Test(normTxt) Or reTbl.Test(normTxt) Or reFig.Test(normTxt) Then
-                        isHead = True
-                    End If
-                    If isL1 Then UpdateRefZoneStateText normTxt, inRefZone
+                    If Left$(stName, 9) = "heading 1" Then isL1 = True
                 End If
-                outCount = outCount + 1
-                outParas(outCount).ParaIndex = pIdx
-                outParas(outCount).RangeStart = rng.Start
-                outParas(outCount).RangeEnd = rng.End
-                outParas(outCount).RawText = rawTxt
-                outParas(outCount).NormText = normTxt
-                outParas(outCount).PosStart = ps
-                outParas(outCount).PosEnd = pe
-                outParas(outCount).NormLen = nLen
-                outParas(outCount).InBodyScope = (pIdx <= endBodyP)
-                outParas(outCount).IsLevel1 = isL1
-                outParas(outCount).IsHeading = isHead
-                outParas(outCount).IsInTable = inTbl
-                outParas(outCount).IsInRefZone = inRefZone
-                outParas(outCount).IsExcluded = isExcl
+                If isL1 Or reL2.Test(normTxt) Or reL3.Test(normTxt) Or reL4.Test(normTxt) Or reTbl.Test(normTxt) Or reFig.Test(normTxt) Then
+                    isHead = True
+                End If
+                If pIdx >= startP Then
+                    If isL1 Then
+                        refCls = ModLocale.ClassifyRefZoneHeading(normTxt)
+                        If refCls = 1 Then
+                            inRefZone = True
+                        ElseIf refCls = -1 Then
+                            inRefZone = False
+                        End If
+                    ElseIf inRefZone And nLen <= 100 Then
+                        If ModLocale.ClassifyRefZoneHeading(normTxt) = -1 Then inRefZone = False
+                    End If
+                End If
             End If
+            outCount = outCount + 1
+            outParas(outCount).ParaIndex = pIdx
+            outParas(outCount).RangeStart = rng.Start
+            outParas(outCount).RangeEnd = rng.End
+            outParas(outCount).RawText = rawTxt
+            outParas(outCount).NormText = normTxt
+            outParas(outCount).PosStart = ps
+            outParas(outCount).PosEnd = pe
+            outParas(outCount).NormLen = nLen
+            outParas(outCount).InBodyScope = (pIdx >= startP And pIdx <= endBodyP)
+            outParas(outCount).IsLevel1 = isL1
+            outParas(outCount).IsHeading = isHead
+            outParas(outCount).IsInTable = inTbl
+            outParas(outCount).IsInRefZone = inRefZone
+            outParas(outCount).IsExcluded = isExcl
         End If
     Next p
     ScanDocForPatch = True

@@ -124,6 +124,7 @@ Public Sub ApplyListLineFormat(ByVal rng As Range, _
         .TabStops.ClearAll
         .TabStops.Add Position:=tabPos, Alignment:=2, Leader:=1
     End With
+    ModFormatSingle.SafeSetOutlineLevel rng, 10
 End Sub
 
 Public Function SyncAllListPages(ByVal doc As Document, ByVal pageMode As Long) As Boolean

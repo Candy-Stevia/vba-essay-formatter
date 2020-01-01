@@ -8,6 +8,12 @@ Option Explicit
 ' Architecture: Academic Document Format Engine (Modular Single Item Dispatcher)
 ' ==============================================================================
 
+Public Sub SafeSetOutlineLevel(ByVal rng As Range, ByVal lvl As Long)
+    On Error Resume Next
+    rng.ParagraphFormat.OutlineLevel = lvl
+    Err.Clear
+End Sub
+
 Private Sub RestoreMathFont(ByVal rng As Range, ByVal hasOMaths As Boolean)
     If Not hasOMaths Then Exit Sub
     If rng.OMaths.Count = 0 Then Exit Sub
@@ -53,6 +59,7 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             rng.ParagraphFormat.Alignment = 1
             rng.ParagraphFormat.FirstLineIndent = 0#
             rng.ParagraphFormat.LeftIndent = 0#
+            SafeSetOutlineLevel rng, 1
             If Len(bmName) > 0 Then
                 ModBookmark.AddBookmark doc, bmName, rng
             End If
@@ -68,6 +75,7 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             rng.ParagraphFormat.Alignment = 0
             rng.ParagraphFormat.FirstLineIndent = indentPts
             rng.ParagraphFormat.LeftIndent = ModConstants.CmToPoints(0.5)
+            SafeSetOutlineLevel rng, 2
             If Len(bmName) > 0 Then
                 ModBookmark.AddBookmark doc, bmName, rng
             End If
@@ -83,6 +91,7 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             rng.ParagraphFormat.Alignment = 0
             rng.ParagraphFormat.FirstLineIndent = indentPts
             rng.ParagraphFormat.LeftIndent = ModConstants.CmToPoints(0.75)
+            SafeSetOutlineLevel rng, 3
             If Len(bmName) > 0 Then
                 ModBookmark.AddBookmark doc, bmName, rng
             End If
@@ -97,6 +106,11 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             rng.ParagraphFormat.Alignment = 0
             rng.ParagraphFormat.FirstLineIndent = indentPts
             rng.ParagraphFormat.LeftIndent = ModConstants.CmToPoints(1#)
+            If ModRibbonCallbacks.g_Config.TocDepth = 3 Then
+                SafeSetOutlineLevel rng, 10
+            Else
+                SafeSetOutlineLevel rng, 4
+            End If
             If Len(bmName) > 0 Then
                 ModBookmark.AddBookmark doc, bmName, rng
             End If
@@ -112,6 +126,7 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             rng.ParagraphFormat.Alignment = 0
             rng.ParagraphFormat.FirstLineIndent = indentPts
             rng.ParagraphFormat.LeftIndent = 0#
+            SafeSetOutlineLevel rng, 10
             If Len(bmName) > 0 Then
                 ModBookmark.AddBookmark doc, bmName, rng
             End If
@@ -131,6 +146,7 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             rng.ParagraphFormat.Alignment = 1
             rng.ParagraphFormat.FirstLineIndent = 0#
             rng.ParagraphFormat.LeftIndent = 0#
+            SafeSetOutlineLevel rng, 10
             If Len(bmName) > 0 Then
                 ModBookmark.AddBookmark doc, bmName, rng
             End If
@@ -140,9 +156,11 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             rng.ParagraphFormat.FirstLineIndent = 0#
             rng.ParagraphFormat.LeftIndent = 0#
             rng.ParagraphFormat.KeepWithNext = True
+            SafeSetOutlineLevel rng, 10
         Case ElementTypeSourceNote
             ModFormatHeading.FormatSourceNoteRange doc, rng, fontName, fontSize
             RestoreMathFont rng, hasOMaths
+            SafeSetOutlineLevel rng, 10
         Case ElementTypeTableCell
             ModFormatCore.ClearYellowAndRedBleed rng
             rng.Font.Name = fontName
@@ -154,6 +172,7 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             rng.ParagraphFormat.Alignment = 1
             rng.ParagraphFormat.FirstLineIndent = 0#
             rng.ParagraphFormat.LeftIndent = 0#
+            SafeSetOutlineLevel rng, 10
         Case ElementTypeNormalParagraph
             ModFormatCore.ClearYellowAndRedBleed rng
             rng.Font.Name = fontName
@@ -162,9 +181,11 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             rng.ParagraphFormat.Alignment = 3
             rng.ParagraphFormat.FirstLineIndent = indentPts
             rng.ParagraphFormat.LeftIndent = 0#
+            SafeSetOutlineLevel rng, 10
             ModFormatBatch.g_SingleParaCount = ModFormatBatch.g_SingleParaCount + 1
         Case ElementTypeIgnoredManualList
             rng.HighlightColorIndex = 6
+            SafeSetOutlineLevel rng, 10
     End Select
 End Sub
 ' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

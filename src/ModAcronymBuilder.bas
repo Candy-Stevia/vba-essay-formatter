@@ -72,6 +72,7 @@ Public Sub WipeAcronymZone(ByVal doc As Document, ByVal removeHeaderToo As Boole
     End If
     If removeHeaderToo And doc.Bookmarks.Exists(BM_LOA_HEADER) Then
         Set hRng = doc.Bookmarks(BM_LOA_HEADER).Range.Paragraphs(1).Range
+        DeleteLegacyTableAfterHeader doc, hRng
         dEnd = doc.Range.End
         If hRng.End < dEnd And InStr(1, hRng.Text, Chr(12)) = 0 Then hRng.Delete
         If doc.Bookmarks.Exists(BM_LOA_HEADER) Then doc.Bookmarks(BM_LOA_HEADER).Delete
@@ -130,6 +131,7 @@ Private Sub FormatLoaHeadingPara(ByVal rng As Range, ByVal fontName As String, B
     rng.ParagraphFormat.SpaceBefore = 6#
     rng.ParagraphFormat.SpaceAfter = 6#
     rng.ParagraphFormat.KeepWithNext = True
+    ModFormatSingle.SafeSetOutlineLevel rng, 1
 End Sub
 
 Private Sub ApplyCol3NoteWithBoldLabels(ByVal cellRng As Range, ByVal noteText As String, _
@@ -337,6 +339,7 @@ Public Function BuildAcronymTable(ByVal doc As Document, ByRef rawItems() As Pat
     Next r
     tbl.Range.Cells.VerticalAlignment = 1
     tbl.Range.HighlightColorIndex = 0
+    ModFormatSingle.SafeSetOutlineLevel tbl.Range, 10
     ModBookmark.AddBookmark doc, BM_ZONE_LOA, tbl.Range
     outWrittenCount = count
     BuildAcronymTable = True

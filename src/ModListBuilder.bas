@@ -23,6 +23,7 @@ Public Sub InsertListHeader(ByVal doc As Document, ByVal pIdx As Long, ByVal tit
     r.ParagraphFormat.Alignment = 1
     r.ParagraphFormat.FirstLineIndent = 0
     r.ParagraphFormat.LeftIndent = 0
+    ModFormatSingle.SafeSetOutlineLevel r, 1
     AddBookmark doc, bm, r
 End Sub
 

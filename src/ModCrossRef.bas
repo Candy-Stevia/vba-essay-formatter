@@ -150,27 +150,6 @@ Private Function IsErroneousTrailingDot(ByVal fullTxt As String, ByVal dotIdx1 A
     End If
 End Function
 
-Private Sub UpdateRefZoneState(ByVal cleanTxt As String, ByRef inRefZone As Boolean)
-    Static reStrip As Object
-    If reStrip Is Nothing Then
-        Set reStrip = CreateObject("VBScript.RegExp")
-        reStrip.IgnoreCase = True
-        reStrip.Global = False
-        reStrip.Pattern = "^(?:(?:chapter|" & ModConstants.Uni("ch\u01b0\u01a1ng") & "|part|" & _
-                          ModConstants.Uni("ph\u1ea7n") & ")\s+[a-z0-9]+\s*[:\.\-]?\s*|(?:\d+(?:\.\d+)*|[ivxlcdm]+)\s*[:\.\-]?\s+)"
-    End If
-    Dim low As String
-    low = Trim$(reStrip.Replace(LCase$(Trim$(cleanTxt)), ""))
-    If Left$(low, 9) = "reference" Or Left$(low, 12) = "bibliography" Or _
-       Left$(low, 18) = ModConstants.Uni("t\u00e0i li\u1ec7u tham kh\u1ea3o") Or _
-       Left$(low, 27) = ModConstants.Uni("danh m\u1ee5c t\u00e0i li\u1ec7u tham kh\u1ea3o") Then
-        inRefZone = True
-    ElseIf Left$(low, 8) = "appendix" Or Left$(low, 10) = "appendices" Or Left$(low, 8) = "glossary" Or _
-           Left$(low, 8) = ModConstants.Uni("ph\u1ee5 l\u1ee5c") Then
-        inRefZone = False
-    End If
-End Sub
-
 Private Sub ApplySingleCrossRef(ByVal doc As Document, ByVal matchRng As Range, _
                                 ByVal normText As String, ByVal rawSlice As String, _
                                 ByVal bmName As String, ByVal tipText As String, _
@@ -319,10 +298,17 @@ ClearOnly:
         If colorId <> "xref_off" Then ModPatchMatcher.SyncCitationLinkColors doc, ResolveLinkColor(colorId)
         Exit Sub
     End If
-    Dim refFlags() As Boolean, inRefZone As Boolean, sIdx As Long, tType As Long
+    Dim refFlags() As Boolean, inRefZone As Boolean, sIdx As Long, tType As Long, refCls As Long
     ReDim refFlags(1 To totalCount)
     For sIdx = 1 To totalCount
-        If snapshots(sIdx).ElementType = ElementTypeLevel1 Then UpdateRefZoneState snapshots(sIdx).CleanText, inRefZone
+        If snapshots(sIdx).ElementType = ElementTypeLevel1 Then
+            refCls = ModLocale.ClassifyRefZoneHeading(snapshots(sIdx).CleanText)
+            If refCls = 1 Then
+                inRefZone = True
+            ElseIf refCls = -1 Then
+                inRefZone = False
+            End If
+        End If
         refFlags(sIdx) = inRefZone
     Next sIdx
     Dim linkColor As Long, docHasMath As Boolean, reMain As Object

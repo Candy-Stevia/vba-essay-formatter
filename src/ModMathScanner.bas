@@ -229,14 +229,15 @@ Public Function StripOuterDelims(ByVal txt As String) As String
 End Function
 
 Private Function CheckNoFlyHeading(ByVal rawText As String, ByRef isScanningActive As Boolean) As Boolean
-    Dim cleanHead As String
-    cleanHead = LCase$(Trim$(Replace(Replace(Replace(rawText, vbCr, ""), Chr(11), ""), Chr(7), "")))
+    Dim cleanHead As String, cls As Long
+    cleanHead = Trim$(Replace(Replace(Replace(rawText, vbCr, ""), Chr(11), ""), Chr(7), ""))
     If Len(cleanHead) <= 45 Then
-        If cleanHead = "references" Or cleanHead = "bibliography" Or cleanHead = "tai lieu tham khao" Or cleanHead = "danh muc tai lieu tham khao" Or cleanHead = ModConstants.Uni("t\u00e0i li\u1ec7u tham kh\u1ea3o") Or cleanHead = ModConstants.Uni("danh m\u1ee5c t\u00e0i li\u1ec7u tham kh\u1ea3o") Then
+        cls = ModLocale.ClassifyRefZoneHeading(cleanHead, True)
+        If cls = 1 Then
             isScanningActive = False
             CheckNoFlyHeading = True
             Exit Function
-        ElseIf Left$(cleanHead, 8) = "appendix" Or Left$(cleanHead, 10) = "appendices" Or Left$(cleanHead, 7) = "phu luc" Or Left$(cleanHead, 7) = ModConstants.Uni("ph\u1ee5 l\u1ee5c") Then
+        ElseIf cls = -1 Then
             isScanningActive = True
         End If
     End If

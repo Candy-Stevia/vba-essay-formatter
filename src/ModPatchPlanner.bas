@@ -19,6 +19,9 @@ Public Type PlanStats
     FixesTotal As Long
     FixesPlanned As Long
     FixesSkipped As Long
+    StructsTotal As Long
+    StructsPlanned As Long
+    StructsSkipped As Long
     OpCount As Long
     WarnNotes As String
 End Type
@@ -151,9 +154,16 @@ Private Function LocateSingleBodyOp(ByVal doc As Document, ByRef paras() As Scan
         outSkipReason = "Empty FIND"
         Exit Function
     End If
+    Dim isStruct As Boolean, inScope As Boolean
+    isStruct = (opKind = OP_KIND_STRUCT)
     For j = 1 To pCount
-        If paras(j).InBodyScope And Not paras(j).IsInRefZone And Not paras(j).IsHeading And Not paras(j).IsExcluded Then
-            paraHits = FindHitsInPara(paras(j), ctxNorm, findNorm, (opKind = OP_KIND_FIX), tmpS, tmpE, tmpCS, tmpCE)
+        If isStruct Then
+            inScope = (Not paras(j).IsInRefZone And Not paras(j).IsExcluded)
+        Else
+            inScope = (paras(j).InBodyScope And Not paras(j).IsInRefZone And Not paras(j).IsHeading And Not paras(j).IsExcluded)
+        End If
+        If inScope Then
+            paraHits = FindHitsInPara(paras(j), ctxNorm, findNorm, (opKind = OP_KIND_FIX Or isStruct), tmpS, tmpE, tmpCS, tmpCE)
             If paraHits > 0 Then
                 totalHits = totalHits + paraHits
                 If totalHits = 1 Then
@@ -170,7 +180,7 @@ Private Function LocateSingleBodyOp(ByVal doc As Document, ByRef paras() As Scan
         End If
     Next j
     If totalHits = 0 Then
-        outSkipReason = "Not found in body"
+        If isStruct Then outSkipReason = "Not found in document" Else outSkipReason = "Not found in body"
         Exit Function
     End If
     If opKind = OP_KIND_CITE Then TrimOuterCitePunct paras(winParaIdx).NormText, winS, winE, repText, hasRep
@@ -209,9 +219,23 @@ Public Sub PlanAllPatchOps(ByVal doc As Document, ByRef payload As PatchPayload,
     For i = 1 To payload.RefCount
         If Not outRefs(i).Found Then AppendWarnNote outStats, "@REFS [" & outRefs(i).KeyId & "]: " & outRefs(i).ErrReason
     Next i
-    cap = payload.FixCount + payload.CiteCount
+    cap = payload.StructCount + payload.FixCount + payload.CiteCount
     If cap < 1 Then cap = 1
     ReDim outOps(1 To cap)
+    outStats.StructsTotal = payload.StructCount + payload.SkippedStructs
+    outStats.StructsSkipped = payload.SkippedStructs
+    For i = 1 To payload.StructCount
+        reason = ""
+        If LocateSingleBodyOp(doc, paras, pCount, OP_KIND_STRUCT, payload.Structs(i).CtxText, payload.Structs(i).FindText, _
+                              payload.Structs(i).NewText, True, "", "", payload.Structs(i).LineNo, candOp, reason) Then
+            outStats.OpCount = outStats.OpCount + 1
+            outOps(outStats.OpCount) = candOp
+            outStats.StructsPlanned = outStats.StructsPlanned + 1
+        Else
+            outStats.StructsSkipped = outStats.StructsSkipped + 1
+            AppendWarnNote outStats, "@STRUCT L" & payload.Structs(i).LineNo & ": " & reason
+        End If
+    Next i
     outStats.FixesTotal = payload.FixCount + payload.SkippedFixes
     outStats.FixesSkipped = payload.SkippedFixes
     For i = 1 To payload.FixCount
@@ -276,6 +300,9 @@ Private Sub SortAndFilterOverlaps(ByRef ops() As PatchOp, ByRef stats As PlanSta
             If ops(i).Kind = OP_KIND_FIX Then
                 stats.FixesPlanned = stats.FixesPlanned - 1
                 stats.FixesSkipped = stats.FixesSkipped + 1
+            ElseIf ops(i).Kind = OP_KIND_STRUCT Then
+                stats.StructsPlanned = stats.StructsPlanned - 1
+                stats.StructsSkipped = stats.StructsSkipped + 1
             Else
                 stats.CitesPlanned = stats.CitesPlanned - 1
                 stats.CitesSkipped = stats.CitesSkipped + 1

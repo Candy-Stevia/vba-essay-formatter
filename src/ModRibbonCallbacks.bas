@@ -177,12 +177,16 @@ Public Sub Ribbon_GetTocDepth(ByVal control As Object, ByRef itemID As Variant)
     If g_Config.TocDepth = 3 Then itemID = "depth_3" Else itemID = "depth_4"
 End Sub
 
-Public Sub Ribbon_OnTocDepthChange(ByVal control As Object, ByVal id As String, ByVal index As Long)
+Public Sub SetTocDepth(ByVal depthId As String)
     If ModMain.g_IsEngineRunning Or ModMathController.g_IsMathBuilding Then
         Exit Sub
     End If
     EnsureConfigInitialized
-    If id = "depth_3" Then g_Config.TocDepth = 3 Else g_Config.TocDepth = 4
+    If depthId = "depth_3" Then g_Config.TocDepth = 3 Else g_Config.TocDepth = 4
+End Sub
+
+Public Sub Ribbon_OnTocDepthChange(ByVal control As Object, ByVal id As String, ByVal index As Long)
+    SetTocDepth id
 End Sub
 
 Public Sub Ribbon_GetSelectedLang(ByVal control As Object, ByRef itemID As Variant)

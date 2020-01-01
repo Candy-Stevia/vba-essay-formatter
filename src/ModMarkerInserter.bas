@@ -101,6 +101,7 @@ Public Sub InsertMarkerAtSelection(ByVal doc As Document, ByVal markerText As St
         Dim markerPara As Paragraph
         Set markerPara = doc.Paragraphs(markerIdx)
         markerPara.Range.HighlightColorIndex = 7 ' wdYellow = 7
+        ModFormatSingle.SafeSetOutlineLevel markerPara.Range, 10
         
         ' Collapse Selection to trailing range after marker and force no highlight
         Dim trailingRng As Range

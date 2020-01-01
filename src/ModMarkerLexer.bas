@@ -220,6 +220,7 @@ Public Sub HighlightMarkers(ByVal doc As Document)
             Case "=contentstart()", "=contentend()", "=listcontent()", "=listtablehere()", "=listfigurehere()", "=listacronyms()"
                 If Not CBool(pRng.Information(12)) Then
                     pRng.HighlightColorIndex = 7 ' wdYellow = 7
+                    ModFormatSingle.SafeSetOutlineLevel pRng, 10
                 End If
         End Select
     Next p

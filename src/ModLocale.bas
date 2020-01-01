@@ -174,4 +174,45 @@ Public Function IsPrefixOnlyHeading(ByVal s As String) As Boolean
     End If
     IsPrefixOnlyHeading = regEx.Test(t)
 End Function
+
+Public Function ClassifyRefZoneHeading(ByVal cleanTxt As String, Optional ByVal exactEnter As Boolean = False) As Long
+    Dim t As String
+    t = Trim$(Replace(Replace(Replace(cleanTxt, vbCr, ""), Chr(11), " "), Chr(7), ""))
+    If Len(t) = 0 Then Exit Function
+    Static reStrip As Object, reEnter As Object, reEnterExact As Object, reExit As Object
+    If reStrip Is Nothing Then
+        Set reStrip = CreateObject("VBScript.RegExp")
+        reStrip.IgnoreCase = True
+        reStrip.Global = False
+        reStrip.Pattern = "^(?:(?:chapter|" & ModConstants.Uni("ch\u01b0\u01a1ng") & "|part|" & _
+                          ModConstants.Uni("ph\u1ea7n") & ")\s+[a-z0-9]+\s*[:\.\-]?\s*|(?:\d+(?:\.\d+)*|[ivxlcdm]+)\s*[:\.\-]?\s+)"
+        Dim enterBase As String
+        enterBase = "(?:references?|bibliography|tai lieu tham khao|danh muc tai lieu tham khao|" & _
+                    ModConstants.Uni("t\u00e0i li\u1ec7u tham kh\u1ea3o|danh m\u1ee5c t\u00e0i li\u1ec7u tham kh\u1ea3o") & ")"
+        Set reEnter = CreateObject("VBScript.RegExp")
+        reEnter.IgnoreCase = True
+        reEnter.Pattern = "^" & enterBase & "(?:$|\s|[:\.\-])"
+        Set reEnterExact = CreateObject("VBScript.RegExp")
+        reEnterExact.IgnoreCase = True
+        reEnterExact.Pattern = "^" & enterBase & "$"
+        Set reExit = CreateObject("VBScript.RegExp")
+        reExit.IgnoreCase = True
+        reExit.Pattern = "^(?:appendices|appendix|glossary|phu luc|" & ModConstants.Uni("ph\u1ee5 l\u1ee5c") & ")(?:$|\s|[:\.\-])"
+    End If
+    t = Trim$(reStrip.Replace(t, ""))
+    If Len(t) = 0 Then Exit Function
+    If exactEnter Then
+        If reEnterExact.Test(t) Then
+            ClassifyRefZoneHeading = 1
+        ElseIf reExit.Test(t) Then
+            ClassifyRefZoneHeading = -1
+        End If
+    Else
+        If reEnter.Test(t) Then
+            ClassifyRefZoneHeading = 1
+        ElseIf reExit.Test(t) Then
+            ClassifyRefZoneHeading = -1
+        End If
+    End If
+End Function
 ' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

@@ -99,6 +99,65 @@ Public Function ResolveDomCoordinates(ByVal doc As Document, ByRef p As ScannedP
     ResolveDomCoordinates = LocateDomViaBinary(doc, p, rawS1, rawE1, wantNorm, outStart, outEnd)
 End Function
 
+Private Sub AppendSpan(ByRef spS() As Long, ByRef spE() As Long, ByRef cnt As Long, ByVal sVal As Long, ByVal eVal As Long)
+    If eVal <= sVal Then Exit Sub
+    cnt = cnt + 1
+    If cnt > UBound(spS) Then
+        ReDim Preserve spS(1 To cnt + 16)
+        ReDim Preserve spE(1 To cnt + 16)
+    End If
+    spS(cnt) = sVal
+    spE(cnt) = eVal
+End Sub
+
+Public Sub CollectExcludedSpans(ByVal doc As Document, ByRef outS() As Long, ByRef outE() As Long, ByRef outCount As Long)
+    outCount = 0
+    ReDim outS(1 To 16)
+    ReDim outE(1 To 16)
+    On Error Resume Next
+    Dim zNames As Variant, k As Long, r As Range
+    zNames = Array(BM_ZONE_TOC, BM_ZONE_LOT, BM_ZONE_LOF, BM_ZONE_LOA)
+    For k = LBound(zNames) To UBound(zNames)
+        If doc.Bookmarks.Exists(CStr(zNames(k))) Then
+            Set r = doc.Bookmarks(CStr(zNames(k))).Range
+            If Err.Number = 0 Then AppendSpan outS, outE, outCount, r.Start, r.End Else Err.Clear
+        End If
+    Next k
+    Dim tocItem As Object, tofItem As Object
+    For Each tocItem In doc.TablesOfContents
+        AppendSpan outS, outE, outCount, tocItem.Range.Start, tocItem.Range.End
+    Next tocItem
+    For Each tofItem In doc.TablesOfFigures
+        AppendSpan outS, outE, outCount, tofItem.Range.Start, tofItem.Range.End
+    Next tofItem
+    Err.Clear
+End Sub
+
+Public Function IsInExcludedSpans(ByVal rStart As Long, ByVal rEnd As Long, _
+                                  ByRef spS() As Long, ByRef spE() As Long, ByVal cnt As Long) As Boolean
+    Dim k As Long
+    For k = 1 To cnt
+        If rStart < spE(k) And rEnd > spS(k) Then
+            IsInExcludedSpans = True
+            Exit Function
+        End If
+    Next k
+End Function
+
+Private Function IsInGeneratedZone(ByVal doc As Document, ByVal sPos As Long, ByVal ePos As Long) As Boolean
+    Dim zNames As Variant, k As Long, zRng As Range
+    zNames = Array(BM_ZONE_TOC, BM_ZONE_LOT, BM_ZONE_LOF, BM_ZONE_LOA)
+    For k = LBound(zNames) To UBound(zNames)
+        If doc.Bookmarks.Exists(CStr(zNames(k))) Then
+            Set zRng = doc.Bookmarks(CStr(zNames(k))).Range
+            If sPos < zRng.End And ePos > zRng.Start Then
+                IsInGeneratedZone = True
+                Exit Function
+            End If
+        End If
+    Next k
+End Function
+
 Public Function ValidateDomGuards(ByVal doc As Document, ByRef p As ScannedPara, ByVal opKind As Long, _
                                   ByVal sPos As Long, ByVal ePos As Long, ByVal targetBm As String, _
                                   ByVal repText As String, ByVal hasRep As Boolean, _
@@ -130,9 +189,15 @@ Public Function ValidateDomGuards(ByVal doc As Document, ByRef p As ScannedPara,
             Exit Function
         End If
     End If
-    If opKind = OP_KIND_FIX Then
+    If opKind = OP_KIND_STRUCT Then
+        If IsInGeneratedZone(doc, sPos, ePos) Then
+            outReason = "Protected generated list zone in @STRUCT"
+            Exit Function
+        End If
+    End If
+    If opKind = OP_KIND_FIX Or opKind = OP_KIND_STRUCT Then
         If mRng.Hyperlinks.Count > 0 Or mRng.Fields.Count > 0 Then
-            outReason = "Protected field/hyperlink in @FIX"
+            outReason = "Protected field/hyperlink"
             Exit Function
         End If
     Else

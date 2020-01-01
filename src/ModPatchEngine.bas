@@ -30,7 +30,9 @@ Private Function BuildDryRunSummary(ByRef payload As PatchPayload, ByRef stats A
         "- @CITE: " & stats.CitesPlanned & " new/update, " & stats.CitesAlready & " synced" & _
         ModConstants.Uni(" (B\u1ecf qua: ") & stats.CitesSkipped & ")" & vbCrLf & _
         "- @FIX: " & stats.FixesPlanned & " apply" & _
-        ModConstants.Uni(" (B\u1ecf qua: ") & stats.FixesSkipped & ")" & vbCrLf
+        ModConstants.Uni(" (B\u1ecf qua: ") & stats.FixesSkipped & ")" & vbCrLf & _
+        "- @STRUCT: " & stats.StructsPlanned & " apply" & _
+        ModConstants.Uni(" (B\u1ecf qua: ") & stats.StructsSkipped & ")" & vbCrLf
     If payload.AcronymCount <= 0 Then
         s = s & ModConstants.Uni("- @ACRONYMS: 0 (Gi\u1eef nguy\u00ean b\u1ea3ng t\u1eeb vi\u1ebft t\u1eaft hi\u1ec7n c\u00f3)")
     ElseIf canLoa Then
@@ -63,13 +65,13 @@ Private Sub EnsureRefBookmarks(ByVal doc As Document, ByRef targets() As RefTarg
 End Sub
 
 Private Sub ApplySingleOpItem(ByVal doc As Document, ByRef op As PatchOp, ByVal linkColor As Long, _
-                              ByRef outFixes As Long, ByRef outCites As Long)
+                              ByRef outFixes As Long, ByRef outStructs As Long, ByRef outCites As Long)
     On Error GoTo ErrOp
     Dim mRng As Range, hl As Hyperlink
     Set mRng = doc.Range(op.StartPos, op.EndPos)
-    If op.Kind = OP_KIND_FIX Then
+    If op.Kind = OP_KIND_FIX Or op.Kind = OP_KIND_STRUCT Then
         mRng.Text = op.ReplaceText
-        outFixes = outFixes + 1
+        If op.Kind = OP_KIND_STRUCT Then outStructs = outStructs + 1 Else outFixes = outFixes + 1
     Else
         If op.KeepExistingLink Then
             Set hl = mRng.Hyperlinks(1)
@@ -100,6 +102,21 @@ Private Sub ApplySingleOpItem(ByVal doc As Document, ByRef op As PatchOp, ByVal 
     Exit Sub
 ErrOp:
     ModConstants.g_SilentErrors = ModConstants.g_SilentErrors + 1
+End Sub
+
+Private Sub RestorePatchUiState(ByVal doc As Document, ByVal hasWinView As Boolean, ByVal prevView As Long, _
+                                ByVal hasPag As Boolean, ByVal prevPag As Boolean, _
+                                ByVal hasScreen As Boolean, ByVal prevScreen As Boolean)
+    On Error Resume Next
+    ModProgress.ProgressFinish
+    If hasWinView Then
+        If Not doc Is Nothing Then
+            If doc.Windows.Count > 0 Then doc.ActiveWindow.View.Type = prevView
+        End If
+    End If
+    If hasPag Then Application.Options.Pagination = prevPag
+    If hasScreen Then Application.ScreenUpdating = prevScreen
+    Err.Clear
 End Sub
 
 Public Function ExecuteAiPatchText(ByVal doc As Document, ByVal rawPatch As String, _
@@ -162,7 +179,7 @@ Public Function ExecuteAiPatchText(ByVal doc As Document, ByVal rawPatch As Stri
             ModUI.MsgBoxW BuildDryRunSummary(payload, stats, willBuildLoa, canLoa, isOffFallback), _
                           vbInformation, ModConstants.Uni("AI Patch Dry-Run")
         End If
-        ExecuteAiPatchText = "NOOP|" & stats.RefsSkipped & "|" & stats.CitesSkipped & "|" & stats.FixesSkipped
+        ExecuteAiPatchText = "NOOP|" & stats.RefsSkipped & "|" & stats.CitesSkipped & "|" & stats.FixesSkipped & "|" & stats.StructsSkipped
         GoTo CleanExit
     End If
 
@@ -178,7 +195,8 @@ Public Function ExecuteAiPatchText(ByVal doc As Document, ByVal rawPatch As Stri
         End If
     End If
 
-    Dim backupPath As String, wasTracking As Boolean, prevScreen As Boolean
+    Dim backupPath As String, wasTracking As Boolean, prevScreen As Boolean, hasScreenSaved As Boolean
+    Dim prevViewType As Long, prevPagination As Boolean, hasWindowView As Boolean, hasPaginationState As Boolean
     Dim objUndo As Object, undoStarted As Boolean, protectedOk As Boolean
     If Not ModBackup.BeginProtectedSession(doc, backupPath, wasTracking) Then
         ExecuteAiPatchText = "ERR|PREFLIGHT|" & ModRibbonCallbacks.g_LastError
@@ -187,33 +205,56 @@ Public Function ExecuteAiPatchText(ByVal doc As Document, ByVal rawPatch As Stri
     protectedOk = True
     prevScreen = Application.ScreenUpdating
     Application.ScreenUpdating = False
+    hasScreenSaved = True
+    On Error Resume Next
+    prevPagination = Application.Options.Pagination
+    If Err.Number = 0 Then
+        hasPaginationState = True
+        Application.Options.Pagination = False
+    End If
+    Err.Clear
+    If doc.Windows.Count > 0 Then
+        prevViewType = doc.ActiveWindow.View.Type
+        If Err.Number = 0 Then
+            hasWindowView = True
+            doc.ActiveWindow.View.Type = 1
+        End If
+    End If
+    Err.Clear
+    On Error GoTo ErrPatch
+    ModProgress.ProgressInit "AI Patch Engine"
+    ModProgress.ProgressSetPhase ModConstants.Uni("Applying Patches (\u0110ang \u00e1p d\u1ee5ng b\u1ea3n v\u00e1)"), 10#, 75#
     undoStarted = ModBackup.StartUndoSafe(ModConstants.Uni("Apply AI Patch (Ch\u1ea1y AI Patch)"), objUndo)
 
-    Dim fixesDone As Long, citesDone As Long, acroBuilt As Long, i As Long
+    Dim fixesDone As Long, structsDone As Long, citesDone As Long, acroBuilt As Long, i As Long
     EnsureRefBookmarks doc, refTargets, payload.RefCount, paras
     For i = stats.OpCount To 1 Step -1
-        ApplySingleOpItem doc, ops(i), linkColor, fixesDone, citesDone
+        ModProgress.ProgressUpdate (stats.OpCount - i + 1), stats.OpCount
+        ApplySingleOpItem doc, ops(i), linkColor, fixesDone, structsDone, citesDone
     Next i
     If stats.CitesAlready > 0 And Not isOffFallback Then
         ModPatchMatcher.SyncCitationLinkColors doc, linkColor
     End If
     If willBuildLoa And canLoa Then
+        ModProgress.ProgressSetPhase ModConstants.Uni("Building Acronyms (D\u1ef1ng DM Vi\u1ebft t\u1eaft)"), 85#, 15#
         ModAcronymBuilder.BuildAcronymTable doc, payload.Acronyms, payload.AcronymCount, acroBuilt
     End If
 
     ModBackup.EndUndoSafe objUndo, undoStarted
-    Application.ScreenUpdating = prevScreen
+    RestorePatchUiState doc, hasWindowView, prevViewType, hasPaginationState, prevPagination, hasScreenSaved, prevScreen
     ModBackup.EndProtectedSession doc, backupPath, wasTracking, (ModConstants.g_SilentErrors > 0)
     protectedOk = False
 
     ExecuteAiPatchText = "OK|" & stats.RefsMatched & "|" & citesDone & "|" & stats.CitesAlready & "|" & _
-                         stats.CitesSkipped & "|" & fixesDone & "|" & stats.FixesSkipped & "|" & acroBuilt
+                         stats.CitesSkipped & "|" & fixesDone & "|" & stats.FixesSkipped & "|" & acroBuilt & "|" & _
+                         structsDone & "|" & stats.StructsSkipped
     If showUiDialogs Then
         Dim doneMsg As String
         doneMsg = ModConstants.Uni("AI Patch applied (Ho\u00e0n t\u1ea5t \u00e1p d\u1ee5ng AI Patch):") & vbCrLf & _
                   "- @REFS bookmarks: " & stats.RefsMatched & vbCrLf & _
                   "- @CITE linked/updated: " & citesDone & " (" & stats.CitesAlready & " already synced, " & stats.CitesSkipped & " skipped)" & vbCrLf & _
                   "- @FIX replaced: " & fixesDone & " (" & stats.FixesSkipped & " skipped)" & vbCrLf & _
+                  "- @STRUCT replaced: " & structsDone & " (" & stats.StructsSkipped & " skipped)" & vbCrLf & _
                   "- @ACRONYMS built: " & acroBuilt
         If ModConstants.g_SilentErrors > 0 Then
             doneMsg = doneMsg & vbCrLf & ModConstants.Uni("Note: minor warnings occurred; crash backup retained.")
@@ -227,7 +268,7 @@ ErrPatch:
     ModRibbonCallbacks.g_LastError = "AI Patch error (" & Err.Number & "): " & Err.Description
     On Error Resume Next
     If undoStarted Then ModBackup.EndUndoSafe objUndo, undoStarted
-    Application.ScreenUpdating = True
+    RestorePatchUiState doc, hasWindowView, prevViewType, hasPaginationState, prevPagination, True, True
     If protectedOk Then ModBackup.EndProtectedSession doc, backupPath, wasTracking, True
     If showUiDialogs Then
         ModUI.MsgBoxW ModRibbonCallbacks.g_LastError, vbCritical, ModConstants.Uni("AI Patch Error (L\u1ed7i)")

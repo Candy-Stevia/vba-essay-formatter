@@ -48,6 +48,9 @@ Public Type PatchPayload
     Fixes() As PatchFixItem
     FixCount As Long
     SkippedFixes As Long
+    Structs() As PatchFixItem
+    StructCount As Long
+    SkippedStructs As Long
     Acronyms() As PatchAcronymItem
     AcronymCount As Long
     SkippedAcronyms As Long
@@ -59,6 +62,7 @@ Private Sub EnsurePatchCapacities(ByRef p As PatchPayload)
     ReDim p.Refs(1 To 64)
     ReDim p.Cites(1 To 64)
     ReDim p.Fixes(1 To 64)
+    ReDim p.Structs(1 To 64)
     ReDim p.Acronyms(1 To 64)
 End Sub
 
@@ -80,6 +84,12 @@ Private Sub AppendFix(ByRef p As PatchPayload, ByRef item As PatchFixItem)
     p.FixCount = p.FixCount + 1
     If p.FixCount > UBound(p.Fixes) Then ReDim Preserve p.Fixes(1 To p.FixCount + 64)
     p.Fixes(p.FixCount) = item
+End Sub
+
+Private Sub AppendStruct(ByRef p As PatchPayload, ByRef item As PatchFixItem)
+    p.StructCount = p.StructCount + 1
+    If p.StructCount > UBound(p.Structs) Then ReDim Preserve p.Structs(1 To p.StructCount + 64)
+    p.Structs(p.StructCount) = item
 End Sub
 
 Private Sub AppendAcronym(ByRef p As PatchPayload, ByRef item As PatchAcronymItem)
@@ -112,9 +122,13 @@ Private Sub FlushOpenBlock(ByRef curMode As String, ByRef cItem As PatchCiteItem
     ElseIf hasOpenFix Then
         If Len(fItem.CtxText) > 0 Or Len(fItem.FindText) > 0 Or Len(fItem.NewText) > 0 Then
             If Len(fItem.CtxText) > 0 And Len(fItem.FindText) > 0 And Len(fItem.NewText) > 0 Then
-                AppendFix outPatch, fItem
+                If curMode = "@STRUCT" Then AppendStruct outPatch, fItem Else AppendFix outPatch, fItem
             Else
-                outPatch.SkippedFixes = outPatch.SkippedFixes + 1
+                If curMode = "@STRUCT" Then
+                    outPatch.SkippedStructs = outPatch.SkippedStructs + 1
+                Else
+                    outPatch.SkippedFixes = outPatch.SkippedFixes + 1
+                End If
             End If
         End If
         Dim emptyF As PatchFixItem
@@ -252,14 +266,14 @@ Public Function ParseAiPatch(ByVal rawInput As String, ByRef outPatch As PatchPa
             outPatch.HasFooter = True
             Exit For
         End If
-        If up = "@REFS" Or up = "@CITE" Or up = "@FIX" Or up = "@ACRONYMS" Then
+        If up = "@REFS" Or up = "@CITE" Or up = "@FIX" Or up = "@STRUCT" Or up = "@ACRONYMS" Then
             FlushOpenBlock curMode, curCite, curFix, hasOpenCite, hasOpenFix, outPatch
             started = True
             curMode = up
             If curMode = "@CITE" Then
                 hasOpenCite = True
                 curCite.LineNo = idx + 1
-            ElseIf curMode = "@FIX" Then
+            ElseIf curMode = "@FIX" Or curMode = "@STRUCT" Then
                 hasOpenFix = True
                 curFix.LineNo = idx + 1
             End If
@@ -276,13 +290,13 @@ Public Function ParseAiPatch(ByVal rawInput As String, ByRef outPatch As PatchPa
             ParseAcronymLine trimmed, idx + 1, outPatch
         ElseIf curMode = "@CITE" Then
             ParseCiteField trimmed, idx + 1, curCite, hasOpenCite
-        ElseIf curMode = "@FIX" Then
+        ElseIf curMode = "@FIX" Or curMode = "@STRUCT" Then
             ParseFixField trimmed, idx + 1, curFix, hasOpenFix
         End If
 NextLn:
     Next idx
     FlushOpenBlock curMode, curCite, curFix, hasOpenCite, hasOpenFix, outPatch
     ParseAiPatch = (outPatch.HasHeader Or outPatch.RefCount > 0 Or outPatch.CiteCount > 0 Or _
-                    outPatch.FixCount > 0 Or outPatch.AcronymCount > 0)
+                    outPatch.FixCount > 0 Or outPatch.StructCount > 0 Or outPatch.AcronymCount > 0)
 End Function
 ' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
