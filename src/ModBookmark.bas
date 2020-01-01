@@ -31,6 +31,7 @@ Public Function AddBookmark(ByVal doc As Document, _
     Exit Function
 
 ErrorHandler:
+    ModConstants.g_SilentErrors = ModConstants.g_SilentErrors + 1
     AddBookmark = False
 End Function
 
@@ -58,6 +59,16 @@ Public Sub InsertCleanHyperlink(ByVal doc As Document, _
     End If
 End Sub
 
+Private Function IsAllAsciiDigits(ByVal s As String) As Boolean
+    Dim i As Long, ch As Long
+    If Len(s) = 0 Then Exit Function
+    For i = 1 To Len(s)
+        ch = AscW(Mid$(s, i, 1))
+        If ch < 48 Or ch > 57 Then Exit Function
+    Next i
+    IsAllAsciiDigits = True
+End Function
+
 Public Sub CleanExcessBookmarks(ByVal doc As Document, ByVal cntToc As Long, ByVal cntTbl As Long, ByVal cntFig As Long)
     Dim toDel() As String, delCount As Long, delCap As Long
     delCap = 32
@@ -67,16 +78,20 @@ Public Sub CleanExcessBookmarks(ByVal doc As Document, ByVal cntToc As Long, ByV
         nm = bm.Name
         If Len(nm) >= 11 Then
             pfx = Left$(nm, 7)
-            tailStr = Mid$(nm, 8)
-            If IsNumeric(tailStr) Then
-                bmId = CLng(Val(tailStr))
-                If (pfx = BM_PREFIX_TOC And bmId > cntToc) Or (pfx = BM_PREFIX_TBL And bmId > cntTbl) Or (pfx = BM_PREFIX_FIG And bmId > cntFig) Then
-                    delCount = delCount + 1
-                    If delCount > delCap Then
-                        delCap = delCap * 2
-                        ReDim Preserve toDel(1 To delCap)
+            If pfx = BM_PREFIX_TOC Or pfx = BM_PREFIX_TBL Or pfx = BM_PREFIX_FIG Then
+                tailStr = Mid$(nm, 8)
+                If Len(tailStr) <= 9 Then
+                    If IsAllAsciiDigits(tailStr) Then
+                        bmId = CLng(tailStr)
+                        If (pfx = BM_PREFIX_TOC And bmId > cntToc) Or (pfx = BM_PREFIX_TBL And bmId > cntTbl) Or (pfx = BM_PREFIX_FIG And bmId > cntFig) Then
+                            delCount = delCount + 1
+                            If delCount > delCap Then
+                                delCap = delCap * 2
+                                ReDim Preserve toDel(1 To delCap)
+                            End If
+                            toDel(delCount) = nm
+                        End If
                     End If
-                    toDel(delCount) = nm
                 End If
             End If
         End If

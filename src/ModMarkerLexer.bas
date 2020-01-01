@@ -54,10 +54,15 @@ Public Function ScanMarkers(ByVal doc As Document, _
     For Each p In doc.Paragraphs
         i = i + 1
         rawText = p.Range.Text
-        cleanText = LCase$(Trim$(Replace(Replace(rawText, vbCr, ""), Chr(11), "")))
+        cleanText = LCase$(Trim$(Replace(Replace(Replace(rawText, vbCr, ""), Chr(7), ""), Chr(11), "")))
         
         Select Case cleanText
             Case "=contentstart()"
+                If CBool(p.Range.Information(12)) Then
+                    outErrorMessage = BuildTableMarkerError(cleanText, i)
+                    ScanMarkers = False
+                    Exit Function
+                End If
                 If outMarkers.HasContentStart Then
                     outErrorMessage = ModConstants.Uni("Duplicate =contentStart() at paragraphs ") & _
                                       outMarkers.ContentStartParaIndex & " & " & i & _
@@ -70,6 +75,11 @@ Public Function ScanMarkers(ByVal doc As Document, _
                 outMarkers.ContentStartParaIndex = i
                 
             Case "=contentend()"
+                If CBool(p.Range.Information(12)) Then
+                    outErrorMessage = BuildTableMarkerError(cleanText, i)
+                    ScanMarkers = False
+                    Exit Function
+                End If
                 If outMarkers.HasContentEnd Then
                     outErrorMessage = ModConstants.Uni("Duplicate =contentEnd() at paragraphs ") & _
                                       outMarkers.ContentEndParaIndex & " & " & i & _
@@ -82,40 +92,31 @@ Public Function ScanMarkers(ByVal doc As Document, _
                 outMarkers.ContentEndParaIndex = i
                 
             Case "=listcontent()"
+                If Not ValidateMarkerCandidate(p, "=listContent()", i, outMarkers.HasListContent, outMarkers.ListContentParaIndex, outErrorMessage) Then
+                    ScanMarkers = False
+                    Exit Function
+                End If
                 outMarkers.HasListContent = True
                 outMarkers.ListContentParaIndex = i
-                listMarkerCount = listMarkerCount + 1
-                If listMarkerCount > listMarkerCap Then
-                    listMarkerCap = listMarkerCap * 2
-                    ReDim Preserve listMarkerNames(1 To listMarkerCap)
-                    ReDim Preserve listMarkerIndices(1 To listMarkerCap)
-                End If
-                listMarkerNames(listMarkerCount) = "=listContent()"
-                listMarkerIndices(listMarkerCount) = i
+                RecordListMarker listMarkerNames, listMarkerIndices, listMarkerCount, listMarkerCap, "=listContent()", i
 
             Case "=listtablehere()"
+                If Not ValidateMarkerCandidate(p, "=listTableHere()", i, outMarkers.HasListTable, outMarkers.ListTableParaIndex, outErrorMessage) Then
+                    ScanMarkers = False
+                    Exit Function
+                End If
                 outMarkers.HasListTable = True
                 outMarkers.ListTableParaIndex = i
-                listMarkerCount = listMarkerCount + 1
-                If listMarkerCount > listMarkerCap Then
-                    listMarkerCap = listMarkerCap * 2
-                    ReDim Preserve listMarkerNames(1 To listMarkerCap)
-                    ReDim Preserve listMarkerIndices(1 To listMarkerCap)
-                End If
-                listMarkerNames(listMarkerCount) = "=listTableHere()"
-                listMarkerIndices(listMarkerCount) = i
+                RecordListMarker listMarkerNames, listMarkerIndices, listMarkerCount, listMarkerCap, "=listTableHere()", i
 
             Case "=listfigurehere()"
+                If Not ValidateMarkerCandidate(p, "=listFigureHere()", i, outMarkers.HasListFigure, outMarkers.ListFigureParaIndex, outErrorMessage) Then
+                    ScanMarkers = False
+                    Exit Function
+                End If
                 outMarkers.HasListFigure = True
                 outMarkers.ListFigureParaIndex = i
-                listMarkerCount = listMarkerCount + 1
-                If listMarkerCount > listMarkerCap Then
-                    listMarkerCap = listMarkerCap * 2
-                    ReDim Preserve listMarkerNames(1 To listMarkerCap)
-                    ReDim Preserve listMarkerIndices(1 To listMarkerCap)
-                End If
-                listMarkerNames(listMarkerCount) = "=listFigureHere()"
-                listMarkerIndices(listMarkerCount) = i
+                RecordListMarker listMarkerNames, listMarkerIndices, listMarkerCount, listMarkerCap, "=listFigureHere()", i
         End Select
     Next p
     
@@ -160,6 +161,48 @@ Public Function ScanMarkers(ByVal doc As Document, _
     ScanMarkers = True
 End Function
 
+Private Function ValidateMarkerCandidate(ByVal p As Paragraph, ByVal displayMarker As String, _
+                                         ByVal idx As Long, ByVal alreadyFound As Boolean, _
+                                         ByVal existingIdx As Long, ByRef outErr As String) As Boolean
+    If CBool(p.Range.Information(12)) Then
+        outErr = BuildTableMarkerError(displayMarker, idx)
+        Exit Function
+    End If
+    If alreadyFound Then
+        outErr = BuildDuplicateMarkerError(displayMarker, existingIdx, idx)
+        Exit Function
+    End If
+    ValidateMarkerCandidate = True
+End Function
+
+Private Function BuildDuplicateMarkerError(ByVal markerText As String, ByVal idx1 As Long, ByVal idx2 As Long) As String
+    BuildDuplicateMarkerError = ModConstants.Uni("Duplicate ") & markerText & _
+        ModConstants.Uni(" at paragraphs ") & idx1 & " & " & idx2 & _
+        ModConstants.Uni(". (Tr\u00f9ng th\u1ebb ") & markerText & _
+        ModConstants.Uni(" \u1edf \u0111o\u1ea1n ") & idx1 & " & " & idx2 & ".)")
+End Function
+
+Private Sub RecordListMarker(ByRef names() As String, ByRef indices() As Long, _
+                             ByRef cnt As Long, ByRef cap As Long, _
+                             ByVal mName As String, ByVal pIdx As Long)
+    cnt = cnt + 1
+    If cnt > cap Then
+        cap = cap * 2
+        ReDim Preserve names(1 To cap)
+        ReDim Preserve indices(1 To cap)
+    End If
+    names(cnt) = mName
+    indices(cnt) = pIdx
+End Sub
+
+Private Function BuildTableMarkerError(ByVal markerText As String, ByVal paraIdx As Long) As String
+    BuildTableMarkerError = ModConstants.Uni("Marker ") & markerText & _
+        ModConstants.Uni(" at paragraph ") & paraIdx & _
+        ModConstants.Uni(" cannot be inside a table. (Th\u1ebb ") & markerText & _
+        ModConstants.Uni(" \u1edf \u0111o\u1ea1n ") & paraIdx & _
+        ModConstants.Uni(" kh\u00f4ng \u0111\u01b0\u1ee3c n\u1eb1m trong b\u1ea3ng.)")
+End Function
+
 Private Function BuildMarkerPlacementWarning(ByVal badList As String) As String
     BuildMarkerPlacementWarning = "List marker(s) found inside body: " & badList & vbCrLf & _
         ModConstants.Uni("(Ph\u00e1t hi\u1ec7n th\u1ebb danh m\u1ee5c n\u1eb1m trong th\u00e2n b\u00e0i.)") & vbCrLf & vbCrLf & _
@@ -177,21 +220,26 @@ Public Sub HighlightMarkers(ByVal doc As Document)
         cleanText = LCase$(Trim$(Replace(Replace(Replace(pRng.Text, vbCr, ""), Chr(7), ""), Chr(11), "")))
         Select Case cleanText
             Case "=contentstart()", "=contentend()", "=listcontent()", "=listtablehere()", "=listfigurehere()"
-                pRng.HighlightColorIndex = 7 ' wdYellow = 7
+                If Not CBool(pRng.Information(12)) Then
+                    pRng.HighlightColorIndex = 7 ' wdYellow = 7
+                End If
         End Select
     Next p
     If Err.Number <> 0 Then Err.Clear
 End Sub
 
 Public Function FindMarkerParagraph(ByVal doc As Document, ByVal markerText As String) As Long
-    Dim i As Long, p As Paragraph, cleanText As String
+    Dim i As Long, p As Paragraph, cleanText As String, pRng As Range
     i = 0
     For Each p In doc.Paragraphs
         i = i + 1
-        cleanText = LCase$(Trim$(Replace(Replace(Replace(p.Range.Text, vbCr, ""), Chr(7), ""), Chr(11), "")))
+        Set pRng = p.Range
+        cleanText = LCase$(Trim$(Replace(Replace(Replace(pRng.Text, vbCr, ""), Chr(7), ""), Chr(11), "")))
         If cleanText = markerText Then
-            FindMarkerParagraph = i
-            Exit Function
+            If Not CBool(pRng.Information(12)) Then
+                FindMarkerParagraph = i
+                Exit Function
+            End If
         End If
     Next p
     FindMarkerParagraph = 0
@@ -201,78 +249,126 @@ Public Sub NormalizeContentBreaks(ByVal doc As Document)
     Dim pStart As Long, pEnd As Long
     pStart = FindMarkerParagraph(doc, "=contentstart()")
     pEnd = FindMarkerParagraph(doc, "=contentend()")
-    If pStart = 0 Or pEnd = 0 Or pStart >= pEnd Then Exit Sub
+    If pStart = 0 Or pEnd = 0 Or pEnd <= pStart + 1 Then Exit Sub
+    
+    Dim totalParas As Long
+    totalParas = doc.Paragraphs.Count
+    Dim hasTables As Boolean, hasOMaths As Boolean
+    hasTables = (doc.Tables.Count > 0)
+    hasOMaths = (doc.OMaths.Count > 0)
+    If hasTables Then
+        ModTableIndex.BuildTableIndex doc
+    End If
+    
+    Dim latexFlags() As Boolean, latexWarn As Long
+    ModLatex.ComputeLatexFlags doc, latexFlags, latexWarn
     
     Dim i As Long, pRng As Range, rawText As String, firstLine As String
-    Dim p As Paragraph
-    Dim cRng As Range
+    Dim p As Paragraph, cRng As Range, splitCount As Long
     Set cRng = doc.Range(doc.Paragraphs(pStart).Range.End, doc.Paragraphs(pEnd).Range.Start)
+    splitCount = 0
     
     ' Phase 1: Handle Chr(11) (Shift + Enter) via bottom-up coordinate execution (F-10)
-    If InStr(cRng.Text, Chr(11)) > 0 Then
-        Dim splitStarts() As Long, splitEnds() As Long, splitCount As Long
-        splitCount = 0
-        ReDim splitStarts(1 To doc.Paragraphs.Count)
-        ReDim splitEnds(1 To doc.Paragraphs.Count)
-        For Each p In cRng.Paragraphs
-            rawText = p.Range.Text
-            If InStr(rawText, Chr(11)) > 0 Then
-                firstLine = Trim$(Split(Replace(rawText, vbCr, ""), Chr(11))(0))
-                If Not ModLocale.IsPrefixOnlyHeading(firstLine) Then
-                    splitCount = splitCount + 1
-                    splitStarts(splitCount) = p.Range.Start
-                    splitEnds(splitCount) = p.Range.End
+    If cRng.Start < cRng.End Then
+        Dim findRng As Range, hasSoftBreak As Boolean
+        Set findRng = cRng.Duplicate
+        findRng.Find.ClearFormatting
+        findRng.Find.Replacement.ClearFormatting
+        hasSoftBreak = findRng.Find.Execute(FindText:="^l", MatchWildcards:=False, Format:=False, Wrap:=0)
+        If hasSoftBreak Then
+            Dim splitStarts() As Long, splitEnds() As Long
+            ReDim splitStarts(1 To totalParas)
+            ReDim splitEnds(1 To totalParas)
+            Dim pIdx As Long, skipPara As Boolean
+            pIdx = pStart
+            For Each p In cRng.Paragraphs
+                pIdx = pIdx + 1
+                If pIdx >= pEnd Then Exit For
+                skipPara = False
+                If pIdx <= totalParas Then
+                    If latexFlags(pIdx) Then skipPara = True
                 End If
+                Set pRng = p.Range
+                If Not skipPara Then
+                    If pRng.ListFormat.ListType <> 0 Then
+                        skipPara = True
+                    ElseIf hasTables Then
+                        If ModTableIndex.IsRangeInTable(pRng) Then skipPara = True
+                    End If
+                    If (Not skipPara) And hasOMaths Then
+                        If pRng.OMaths.Count > 0 Then skipPara = True
+                    End If
+                End If
+                If Not skipPara Then
+                    rawText = pRng.Text
+                    If InStr(rawText, Chr(11)) > 0 Then
+                        firstLine = Trim$(Split(Replace(rawText, vbCr, ""), Chr(11))(0))
+                        If Not ModLocale.IsPrefixOnlyHeading(firstLine) Then
+                            splitCount = splitCount + 1
+                            splitStarts(splitCount) = pRng.Start
+                            splitEnds(splitCount) = pRng.End
+                        End If
+                    End If
+                End If
+            Next p
+            Dim j As Long
+            For j = splitCount To 1 Step -1
+                Set pRng = doc.Range(splitStarts(j), splitEnds(j))
+                pRng.Find.ClearFormatting
+                pRng.Find.Replacement.ClearFormatting
+                pRng.Find.Execute FindText:="^l", ReplaceWith:="^p", Replace:=2, MatchWildcards:=False, Format:=False, Wrap:=0
+            Next j
+            If splitCount > 0 Then
+                ModTableIndex.InvalidateTableIndex
             End If
-        Next p
-        Dim j As Long
-        For j = splitCount To 1 Step -1
-            Set pRng = doc.Range(splitStarts(j), splitEnds(j))
-            pRng.Find.ClearFormatting
-            pRng.Find.Replacement.ClearFormatting
-            pRng.Find.Execute FindText:="^l", ReplaceWith:="^p", Replace:=2, Wrap:=0
-        Next j
+        End If
     End If
     
     ' Phase 2: Safely remove blank paragraphs from bottom up (F-03, R-06)
-    pStart = FindMarkerParagraph(doc, "=contentstart()")
-    pEnd = FindMarkerParagraph(doc, "=contentend()")
-    If pStart = 0 Or pEnd = 0 Or pStart >= pEnd Then Exit Sub
+    If splitCount > 0 Then
+        pStart = FindMarkerParagraph(doc, "=contentstart()")
+        pEnd = FindMarkerParagraph(doc, "=contentend()")
+        If pStart = 0 Or pEnd = 0 Or pEnd <= pStart + 1 Then Exit Sub
+        If hasTables Then
+            ModTableIndex.BuildTableIndex doc
+        End If
+    End If
     
     Dim blankStarts() As Long, blankCount As Long
     blankCount = 0
     ReDim blankStarts(1 To doc.Paragraphs.Count)
     
-    Dim hasTables As Boolean
-    hasTables = (doc.Tables.Count > 0)
-    If hasTables Then
-        ModTableIndex.BuildTableIndex doc
-    End If
     Dim hasShapes As Boolean
     hasShapes = (doc.Shapes.Count > 0)
     Dim hasInline As Boolean
     hasInline = (doc.InlineShapes.Count > 0)
-    Dim r As Range, prevInTbl As Boolean
+    Dim r As Range, prevInTbl As Boolean, rText As String
     prevInTbl = False
     Dim curInTbl As Boolean, nextInTbl As Boolean, isBlank As Boolean
     
     i = 0
     For Each p In doc.Paragraphs
         i = i + 1
+        If i >= pEnd Then Exit For
         Set r = p.Range
         curInTbl = False
         If hasTables Then curInTbl = ModTableIndex.IsRangeInTable(r)
         If i > pStart And i < pEnd Then
-            If r.Text = vbCr And (Not curInTbl) Then
-                isBlank = True
-                If hasInline Then If r.InlineShapes.Count > 0 Then isBlank = False
-                If hasShapes And isBlank Then If r.ShapeRange.Count > 0 Then isBlank = False
-                If isBlank Then
-                    nextInTbl = False
-                    If hasTables And (Not p.Next Is Nothing) Then nextInTbl = ModTableIndex.IsRangeInTable(p.Next.Range)
-                    If (Not prevInTbl) And (Not nextInTbl) Then
-                        blankCount = blankCount + 1
-                        blankStarts(blankCount) = r.Start
+            If (Not curInTbl) And (r.End - r.Start = 1) Then
+                rText = r.Text
+                If Len(rText) = 1 And rText = vbCr Then
+                    isBlank = (r.Bookmarks.Count = 0 And (Not r.ParagraphFormat.PageBreakBefore))
+                    If isBlank And hasInline Then isBlank = (r.InlineShapes.Count = 0)
+                    If isBlank And hasShapes Then isBlank = (r.ShapeRange.Count = 0)
+                    If isBlank Then
+                        nextInTbl = False
+                        If hasTables Then
+                            If Not p.Next Is Nothing Then nextInTbl = ModTableIndex.IsRangeInTable(p.Next.Range)
+                        End If
+                        If (Not prevInTbl) And (Not nextInTbl) Then
+                            blankCount = blankCount + 1
+                            blankStarts(blankCount) = r.Start
+                        End If
                     End If
                 End If
             End If
@@ -280,9 +376,12 @@ Public Sub NormalizeContentBreaks(ByVal doc As Document)
         prevInTbl = curInTbl
     Next p
     
-    Dim k As Long
-    For k = blankCount To 1 Step -1
-        doc.Range(blankStarts(k), blankStarts(k) + 1).Delete
-    Next k
+    If blankCount > 0 Then
+        Dim k As Long
+        For k = blankCount To 1 Step -1
+            doc.Range(blankStarts(k), blankStarts(k) + 1).Delete
+        Next k
+        ModTableIndex.InvalidateTableIndex
+    End If
 End Sub
 ' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

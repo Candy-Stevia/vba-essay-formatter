@@ -19,6 +19,32 @@ Private Function ParseFont(ByVal fontMode As String) As Long
     ParseFont = ModTexAst.HandleSubSup(nd)
 End Function
 
+Private Function IsNaryStopTok() As Boolean
+    Dim curT As TexToken
+    Dim nextIdx As Long
+    Dim nextVal As String
+
+    curT = ModTexAst.CurTok()
+    If curT.TokType = TOK_EOF Or curT.TokType = TOK_RBRACE Or curT.TokType = TOK_RPAREN Or curT.TokType = TOK_RBRACK Or curT.TokType = TOK_AMP Or curT.TokType = TOK_NEWLINE Then
+        IsNaryStopTok = True
+        Exit Function
+    End If
+    If curT.TokType = TOK_CMD Then
+        If curT.Val = "\right" Or curT.Val = "\end" Then
+            IsNaryStopTok = True
+            Exit Function
+        End If
+        If curT.Val = "\Big" Or curT.Val = "\bigg" Or curT.Val = "\Bigg" Then
+            nextVal = ModTexParserEnvs.PeekNextNonSpaceVal(ModTexAst.mPos, nextIdx)
+            If ModTexParserEnvs.IsCloseDelim(nextVal) Then
+                IsNaryStopTok = True
+                Exit Function
+            End If
+        End If
+    End If
+    IsNaryStopTok = False
+End Function
+
 Private Function ParseNary(ByVal cmd As String, ByVal chVal As String) As Long
     Dim subNode As Long
     Dim supNode As Long
@@ -40,13 +66,13 @@ Private Function ParseNary(ByVal cmd As String, ByVal chVal As String) As Long
     Next p
 
     bodyNode = 0
-    If ModTexAst.CurTok().TokType <> TOK_EOF And ModTexAst.CurTok().TokType <> TOK_RBRACE And ModTexAst.CurTok().TokType <> TOK_AMP And ModTexAst.CurTok().TokType <> TOK_NEWLINE Then
+    If Not IsNaryStopTok() Then
         bodyNode = ModTexParser.ParsePrimary()
     End If
 
     nd = ModTexAst.AllocNode(AST_NARY)
     ModTexAst.mNodes(nd).Str1 = chVal
-    If chVal = ChrW(&H222B) Then
+    If chVal = ChrW(&H222B) Or chVal = ChrW(&H222C) Or chVal = ChrW(&H222D) Or chVal = ChrW(&H222E) Then
         ModTexAst.mNodes(nd).Str2 = "subSup"
     Else
         ModTexAst.mNodes(nd).Str2 = "undOvr"
@@ -71,6 +97,7 @@ Public Function ParseCommand(ByVal cmd As String) As Long
     Dim nd As Long
     Dim begChr As String
     Dim endChr As String
+    Dim rawDelim As String
     Dim chVal As String
 
     If cmd = "\tag" Then
@@ -79,7 +106,12 @@ Public Function ParseCommand(ByVal cmd As String) As Long
         ParseCommand = 0
         Exit Function
     ElseIf cmd = "\displaystyle" Then
-        ModTexAst.AdvanceTok
+        Do While ModTexAst.CurTok().TokType = TOK_CMD
+            If ModTexAst.CurTok().Val <> "\displaystyle" Then
+                Exit Do
+            End If
+            ModTexAst.AdvanceTok
+        Loop
         ParseCommand = ModTexParser.ParsePrimary()
         Exit Function
     ElseIf cmd = "\frac" Or cmd = "\dfrac" Or cmd = "\tfrac" Or cmd = "\cfrac" Or cmd = "\binom" Or cmd = "\dbinom" Or cmd = "\tbinom" Then
@@ -107,7 +139,7 @@ Public Function ParseCommand(ByVal cmd As String) As Long
         degNode = 0
         If ModTexAst.CurTok().TokType = TOK_LBRACK Then
             ModTexAst.AdvanceTok
-            degNode = ModTexParser.ParsePrimary()
+            degNode = ModTexParser.ParseExpression(TOK_RBRACK)
             ModTexAst.ExpectTok TOK_RBRACK
         End If
         baseNode = ModTexParser.ParseArgument()
@@ -118,12 +150,28 @@ Public Function ParseCommand(ByVal cmd As String) As Long
         Exit Function
     ElseIf cmd = "\left" Or cmd = "\bigg" Or cmd = "\Big" Or cmd = "\Bigg" Then
         ModTexAst.AdvanceTok
-        begChr = ModTexParserEnvs.MapDelimToken(ModTexAst.CurTok().Val)
+        If ModTexAst.CurTok().TokType = TOK_EOF Then
+            ModTexAst.SetAmbiguous True
+            ParseCommand = 0
+            Exit Function
+        End If
+        rawDelim = ModTexAst.CurTok().Val
+        begChr = ModTexParserEnvs.MapDelimToken(rawDelim)
         ModTexAst.AdvanceTok
         If cmd = "\left" Then
-            bodyNode = ModTexParserEnvs.ParseDelimitedBlock("\right", endChr)
+            bodyNode = ModTexParserEnvs.ParseDelimitedBlock("\right", rawDelim, endChr)
+        ElseIf ModTexParserEnvs.IsBigOpenMatched(cmd, rawDelim) Then
+            bodyNode = ModTexParserEnvs.ParseDelimitedBlock(cmd, rawDelim, endChr)
         Else
-            bodyNode = ModTexParserEnvs.ParseDelimitedBlock(cmd, endChr)
+            If Len(begChr) = 0 Then
+                ParseCommand = 0
+            Else
+                nd = ModTexAst.AllocNode(AST_CHAR)
+                ModTexAst.mNodes(nd).Str1 = begChr
+                ModTexAst.mNodes(nd).Bool1 = False
+                ParseCommand = ModTexAst.HandleSubSup(nd)
+            End If
+            Exit Function
         End If
         nd = ModTexAst.AllocNode(AST_DELIM)
         ModTexAst.mNodes(nd).Str1 = begChr
@@ -164,12 +212,19 @@ Public Function ParseCommand(ByVal cmd As String) As Long
         subNode = 0
         If ModTexAst.CurTok().TokType = TOK_LBRACK Then
             ModTexAst.AdvanceTok
-            subNode = ModTexParser.ParsePrimary()
+            subNode = ModTexParser.ParseExpression(TOK_RBRACK)
             ModTexAst.ExpectTok TOK_RBRACK
         End If
         supNode = ModTexParser.ParseArgument()
         baseNode = ModTexAst.AllocNode(AST_CHAR)
         ModTexAst.mNodes(baseNode).Str1 = ChrW(&H2192)
+        ModTexAst.mNodes(baseNode).Bool1 = True
+        If subNode <> 0 Then
+            nd = ModTexAst.AllocNode(AST_LIMLOW)
+            ModTexAst.mNodes(nd).Child1 = baseNode
+            ModTexAst.mNodes(nd).Child2 = subNode
+            baseNode = nd
+        End If
         nd = ModTexAst.AllocNode(AST_LIMUPP)
         ModTexAst.mNodes(nd).Child1 = baseNode
         ModTexAst.mNodes(nd).Child2 = supNode
@@ -258,15 +313,17 @@ Public Function ParseCommand(ByVal cmd As String) As Long
         fnNode = ModTexAst.AllocNode(AST_TEXT)
         If cleanCmd = "argmin" Then
             ModTexAst.mNodes(fnNode).Str1 = "arg min"
+        ElseIf cleanCmd = "argmax" Then
+            ModTexAst.mNodes(fnNode).Str1 = "arg max"
         Else
             ModTexAst.mNodes(fnNode).Str1 = cleanCmd
         End If
         ModTexAst.mNodes(fnNode).Str2 = "roman"
-        If cleanCmd = "lim" Or cleanCmd = "min" Or cleanCmd = "max" Or cleanCmd = "inf" Or cleanCmd = "sup" Or cleanCmd = "argmin" Then
+        If cleanCmd = "lim" Or cleanCmd = "min" Or cleanCmd = "max" Or cleanCmd = "inf" Or cleanCmd = "sup" Or cleanCmd = "argmin" Or cleanCmd = "argmax" Then
             If ModTexAst.CurTok().TokType = TOK_SUB Then
                 ModTexAst.AdvanceTok
                 subNode = ModTexParser.ParseArgument()
-                If Not ModTexAst.mIsBlock And cleanCmd <> "lim" And cleanCmd <> "argmin" Then
+                If Not ModTexAst.mIsBlock And cleanCmd <> "lim" And cleanCmd <> "argmin" And cleanCmd <> "argmax" Then
                     nd = ModTexAst.AllocNode(AST_SUBSUP)
                     ModTexAst.mNodes(nd).Child1 = fnNode
                     ModTexAst.mNodes(nd).Child2 = subNode

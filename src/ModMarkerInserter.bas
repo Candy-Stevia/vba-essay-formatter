@@ -34,6 +34,13 @@ Public Sub InsertMarkerAtSelection(ByVal doc As Document, ByVal markerText As St
     Set selRng = doc.Application.Selection.Range
     If selRng Is Nothing Then Exit Sub
     
+    ' Guard against insertion outside main document story (Header/Footer/TextBox/Footnote)
+    If selRng.StoryType <> 1 Then ' wdMainTextStory = 1
+        ModUI.MsgBoxW ModConstants.Uni("Cannot insert marker outside main document body. Place cursor in the main text. (Kh\u00f4ng th\u1ec3 ch\u00e8n th\u1ebb ngo\u00e0i n\u1ed9i dung ch\u00ednh.)"), _
+                      vbExclamation, ModConstants.Uni("Invalid Position (V\u1ecb tr\u00ed kh\u00f4ng h\u1ee3p l\u1ec7)")
+        Exit Sub
+    End If
+    
     ' Guard against insertion inside Table
     If selRng.Information(12) Then ' wdWithInTable = 12
         ModUI.MsgBoxW ModConstants.Uni("Cannot insert marker inside a table. Place cursor outside the table. (Kh\u00f4ng th\u1ec3 ch\u00e8n th\u1ebb trong b\u1ea3ng, h\u00e3y \u0111\u1eb7t con tr\u1ecf ra ngo\u00e0i.)"), _
@@ -41,12 +48,18 @@ Public Sub InsertMarkerAtSelection(ByVal doc As Document, ByVal markerText As St
         Exit Sub
     End If
     
-    ' Start Undo Record
-    Dim objUndo As Object
+    ' Start Undo Record safely
+    Dim objUndo As Object, weStartedUndo As Boolean
+    weStartedUndo = False
     On Error Resume Next
     Set objUndo = Application.UndoRecord
     On Error GoTo ErrorHandler
-    If Not objUndo Is Nothing Then objUndo.StartCustomRecord "Insert Marker " & markerText
+    If Not objUndo Is Nothing Then
+        If Not objUndo.IsRecordingCustomRecord Then
+            objUndo.StartCustomRecord "Insert Marker " & markerText
+            weStartedUndo = True
+        End If
+    End If
     
     ' Collapse multi-character selection to avoid deleting content
     If selRng.Start <> selRng.End Then selRng.Collapse 1 ' wdCollapseStart = 1
@@ -64,8 +77,12 @@ Public Sub InsertMarkerAtSelection(ByVal doc As Document, ByVal markerText As St
     pEnd = curPara.Range.End
     
     If Len(pText) = 0 Then
-        ' Case 1: Empty paragraph
-        curPara.Range.Text = markerText & vbCr
+        ' Case 1: Empty paragraph (preserve anchored Shapes or InlineShapes)
+        If curPara.Range.InlineShapes.Count > 0 Or curPara.Range.ShapeRange.Count > 0 Then
+            doc.Range(pStart, pStart).InsertBefore markerText & vbCr
+        Else
+            curPara.Range.Text = markerText & vbCr
+        End If
     ElseIf selRng.Start = pStart Then
         ' Case 2: At start of paragraph
         selRng.InsertBefore markerText & vbCr
@@ -87,21 +104,33 @@ Public Sub InsertMarkerAtSelection(ByVal doc As Document, ByVal markerText As St
         
         ' Collapse Selection to trailing range after marker and force no highlight
         Dim trailingRng As Range
-        Set trailingRng = doc.Range(markerPara.Range.End, markerPara.Range.End)
-        trailingRng.HighlightColorIndex = 0 ' wdNoHighlight = 0
-        trailingRng.Select
+        If markerPara.Range.End >= doc.Range.End Then
+            doc.Range(doc.Range.End - 1, doc.Range.End - 1).InsertAfter vbCr
+            Set trailingRng = doc.Paragraphs(markerIdx + 1).Range
+            trailingRng.HighlightColorIndex = 0
+            trailingRng.Collapse 1
+            trailingRng.Select
+        Else
+            Set trailingRng = doc.Range(markerPara.Range.End, markerPara.Range.End)
+            trailingRng.HighlightColorIndex = 0 ' wdNoHighlight = 0
+            trailingRng.Select
+        End If
         doc.Application.Selection.Range.HighlightColorIndex = 0
     End If
 
 CleanExit:
-    If Not objUndo Is Nothing Then
-        If objUndo.IsRecordingCustomRecord Then objUndo.EndCustomRecord
+    If weStartedUndo Then
+        If Not objUndo Is Nothing Then
+            If objUndo.IsRecordingCustomRecord Then objUndo.EndCustomRecord
+        End If
     End If
     Exit Sub
 
 ErrorHandler:
-    If Not objUndo Is Nothing Then
-        If objUndo.IsRecordingCustomRecord Then objUndo.EndCustomRecord
+    If weStartedUndo Then
+        If Not objUndo Is Nothing Then
+            If objUndo.IsRecordingCustomRecord Then objUndo.EndCustomRecord
+        End If
     End If
 End Sub
 ' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

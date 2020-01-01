@@ -8,134 +8,203 @@ Option Explicit
 ' Architecture: 100% 7-bit ASCII, 1 statement per line (vba_lint compliant)
 ' ==============================================================================
 
-Private Function EmitNode(ByVal idx As Long) As String
-    Dim nd As AstNode
-    Dim res As String
-    Dim vItem As Variant
-    Dim subXml As String
-    Dim supXml As String
-    Dim bodyXml As String
-    Dim baseXml As String
-    Dim limXml As String
-    Dim numXml As String
-    Dim denXml As String
-    Dim degXml As String
-    Dim fType As String
-    Dim subHide As String
-    Dim supHide As String
-    Dim growXml As String
+Private Const MAX_EMIT_DEPTH As Long = 64
+
+Private mParts() As String
+Private mPartCount As Long
+Private mEmitDepth As Long
+
+Private Sub BufInit()
+    ReDim mParts(1 To 256)
+    mPartCount = 0
+End Sub
+
+Private Sub BufAppend(ByVal s As String)
+    Dim newCap As Long
+    If Len(s) = 0 Then
+        Exit Sub
+    End If
+    mPartCount = mPartCount + 1
+    If mPartCount > UBound(mParts) Then
+        newCap = UBound(mParts) * 2
+        ReDim Preserve mParts(1 To newCap)
+    End If
+    mParts(mPartCount) = s
+End Sub
+
+Private Function BufFlush() As String
+    If mPartCount = 0 Then
+        BufFlush = ""
+    Else
+        ReDim Preserve mParts(1 To mPartCount)
+        BufFlush = Join(mParts, "")
+    End If
+    Erase mParts
+    mPartCount = 0
+End Function
+
+Private Sub EmitTextElem(ByVal rawText As String)
+    Dim esc As String
+    esc = ModTexSymbols.EscapeXml(rawText)
+    If Len(esc) > 0 Then
+        If Left$(esc, 1) = " " Or Right$(esc, 1) = " " Or InStr(1, esc, "  ") > 0 Then
+            BufAppend "<m:t xml:space=""preserve"">"
+        Else
+            BufAppend "<m:t>"
+        End If
+    Else
+        BufAppend "<m:t>"
+    End If
+    BufAppend esc
+    BufAppend "</m:t>"
+End Sub
+
+Private Sub EmitNode(ByVal idx As Long)
+    Dim nType As Integer
+    Dim c1 As Long, c2 As Long, c3 As Long, maxCols As Long, cIdx As Long
+    Dim fType As String, subHide As String, supHide As String, colAlign As String
     Dim alignArr() As String
-    Dim maxCols As Long
-    Dim mcsXml As String
-    Dim mprXml As String
-    Dim mrXml As String
+    Dim vItem As Variant, cellIdx As Variant
     Dim rowObj As Collection
-    Dim cellIdx As Variant
-    Dim cIdx As Long
-    Dim colAlign As String
-    Dim eXml As String
 
     If idx <= 0 Or idx > ModTexAst.mNodeCount Then
-        EmitNode = ""
-        Exit Function
+        Exit Sub
+    End If
+    mEmitDepth = mEmitDepth + 1
+    If mEmitDepth > MAX_EMIT_DEPTH Then
+        ModTexAst.SetAmbiguous True
+        mEmitDepth = mEmitDepth - 1
+        Exit Sub
     End If
 
-    nd = ModTexAst.mNodes(idx)
+    nType = ModTexAst.mNodes(idx).NodeType
+    c1 = ModTexAst.mNodes(idx).Child1
+    c2 = ModTexAst.mNodes(idx).Child2
+    c3 = ModTexAst.mNodes(idx).Child3
 
-    Select Case nd.NodeType
+    Select Case nType
         Case AST_CHAR
-            If nd.Bool1 Then
-                EmitNode = "<m:r><m:rPr><m:sty m:val=""p"" /></m:rPr><m:t>" & ModTexSymbols.EscapeXml(nd.Str1) & "</m:t></m:r>"
+            If ModTexAst.mNodes(idx).Bool1 Then
+                BufAppend "<m:r><m:rPr><m:sty m:val=""p"" /></m:rPr>"
             Else
-                EmitNode = "<m:r><m:t>" & ModTexSymbols.EscapeXml(nd.Str1) & "</m:t></m:r>"
+                BufAppend "<m:r>"
             End If
+            EmitTextElem ModTexAst.mNodes(idx).Str1
+            BufAppend "</m:r>"
 
         Case AST_TEXT
-            If nd.Str2 = "double-struck" Then
-                EmitNode = "<m:r><m:rPr><m:sty m:val=""p"" /><m:scr m:val=""double-struck"" /></m:rPr><m:t>" & ModTexSymbols.EscapeXml(nd.Str1) & "</m:t></m:r>"
-            ElseIf nd.Str2 = "script" Then
-                EmitNode = "<m:r><m:rPr><m:sty m:val=""p"" /><m:scr m:val=""script"" /></m:rPr><m:t>" & ModTexSymbols.EscapeXml(nd.Str1) & "</m:t></m:r>"
-            ElseIf nd.Str2 = "bold" Then
-                EmitNode = "<m:r><m:rPr><m:sty m:val=""b"" /></m:rPr><m:t>" & ModTexSymbols.EscapeXml(nd.Str1) & "</m:t></m:r>"
-            ElseIf nd.Str2 = "roman" Then
-                EmitNode = "<m:r><m:rPr><m:sty m:val=""p"" /></m:rPr><m:t>" & ModTexSymbols.EscapeXml(nd.Str1) & "</m:t></m:r>"
+            If ModTexAst.mNodes(idx).Str2 = "double-struck" Then
+                BufAppend "<m:r><m:rPr><m:scr m:val=""double-struck"" /><m:sty m:val=""p"" /></m:rPr>"
+            ElseIf ModTexAst.mNodes(idx).Str2 = "script" Then
+                BufAppend "<m:r><m:rPr><m:scr m:val=""script"" /><m:sty m:val=""p"" /></m:rPr>"
+            ElseIf ModTexAst.mNodes(idx).Str2 = "bold" Then
+                BufAppend "<m:r><m:rPr><m:sty m:val=""b"" /></m:rPr>"
+            ElseIf ModTexAst.mNodes(idx).Str2 = "roman" Then
+                BufAppend "<m:r><m:rPr><m:sty m:val=""p"" /></m:rPr>"
             Else
-                EmitNode = "<m:r><m:rPr><m:nor /><m:sty m:val=""p"" /></m:rPr><m:t>" & ModTexSymbols.EscapeXml(nd.Str1) & "</m:t></m:r>"
+                BufAppend "<m:r><m:rPr><m:nor /></m:rPr>"
             End If
+            EmitTextElem ModTexAst.mNodes(idx).Str1
+            BufAppend "</m:r>"
 
         Case AST_FRAC
-            If nd.Bool1 Then
+            If ModTexAst.mNodes(idx).Bool1 Then
                 fType = "bar"
             Else
                 fType = "noBar"
             End If
-            numXml = EmitNode(nd.Child1)
-            denXml = EmitNode(nd.Child2)
-            EmitNode = "<m:f><m:fPr><m:type m:val=""" & fType & """ /></m:fPr><m:num>" & numXml & "</m:num><m:den>" & denXml & "</m:den></m:f>"
+            BufAppend "<m:f><m:fPr><m:type m:val=""" & fType & """ /></m:fPr><m:num>"
+            EmitNode c1
+            BufAppend "</m:num><m:den>"
+            EmitNode c2
+            BufAppend "</m:den></m:f>"
 
         Case AST_RAD
-            baseXml = EmitNode(nd.Child1)
-            If nd.Child2 <> 0 Then
-                degXml = EmitNode(nd.Child2)
-                EmitNode = "<m:rad><m:deg>" & degXml & "</m:deg><m:e>" & baseXml & "</m:e></m:rad>"
+            If c2 <> 0 Then
+                BufAppend "<m:rad><m:deg>"
+                EmitNode c2
+                BufAppend "</m:deg><m:e>"
+                EmitNode c1
+                BufAppend "</m:e></m:rad>"
             Else
-                EmitNode = "<m:rad><m:radPr><m:degHide m:val=""on"" /></m:radPr><m:deg /><m:e>" & baseXml & "</m:e></m:rad>"
+                BufAppend "<m:rad><m:radPr><m:degHide m:val=""on"" /></m:radPr><m:deg /><m:e>"
+                EmitNode c1
+                BufAppend "</m:e></m:rad>"
             End If
 
         Case AST_SUBSUP
-            baseXml = EmitNode(nd.Child1)
-            subXml = ""
-            supXml = ""
-            If nd.Child2 <> 0 Then
-                subXml = EmitNode(nd.Child2)
-            End If
-            If nd.Child3 <> 0 Then
-                supXml = EmitNode(nd.Child3)
-            End If
-            If nd.Child2 <> 0 And nd.Child3 <> 0 Then
-                EmitNode = "<m:sSubSup><m:e>" & baseXml & "</m:e><m:sub>" & subXml & "</m:sub><m:sup>" & supXml & "</m:sup></m:sSubSup>"
-            ElseIf nd.Child2 <> 0 Then
-                EmitNode = "<m:sSub><m:e>" & baseXml & "</m:e><m:sub>" & subXml & "</m:sub></m:sSub>"
-            ElseIf nd.Child3 <> 0 Then
-                EmitNode = "<m:sSup><m:e>" & baseXml & "</m:e><m:sup>" & supXml & "</m:sup></m:sSup>"
+            If c2 <> 0 And c3 <> 0 Then
+                BufAppend "<m:sSubSup><m:e>"
+                EmitNode c1
+                BufAppend "</m:e><m:sub>"
+                EmitNode c2
+                BufAppend "</m:sub><m:sup>"
+                EmitNode c3
+                BufAppend "</m:sup></m:sSubSup>"
+            ElseIf c2 <> 0 Then
+                BufAppend "<m:sSub><m:e>"
+                EmitNode c1
+                BufAppend "</m:e><m:sub>"
+                EmitNode c2
+                BufAppend "</m:sub></m:sSub>"
+            ElseIf c3 <> 0 Then
+                BufAppend "<m:sSup><m:e>"
+                EmitNode c1
+                BufAppend "</m:e><m:sup>"
+                EmitNode c3
+                BufAppend "</m:sup></m:sSup>"
             Else
-                EmitNode = baseXml
+                EmitNode c1
             End If
 
         Case AST_NARY
-            subXml = ""
-            supXml = ""
-            bodyXml = ""
-            If nd.Child1 <> 0 Then
-                subXml = EmitNode(nd.Child1)
+            If c1 <> 0 Then
                 subHide = "off"
             Else
                 subHide = "on"
             End If
-            If nd.Child2 <> 0 Then
-                supXml = EmitNode(nd.Child2)
+            If c2 <> 0 Then
                 supHide = "off"
             Else
                 supHide = "on"
             End If
-            If nd.Child3 <> 0 Then
-                bodyXml = EmitNode(nd.Child3)
+            BufAppend "<m:nary><m:naryPr><m:chr m:val=""" & ModTexSymbols.EscapeXml(ModTexAst.mNodes(idx).Str1) & """ /><m:limLoc m:val=""" & ModTexAst.mNodes(idx).Str2 & """ /><m:subHide m:val=""" & subHide & """ /><m:supHide m:val=""" & supHide & """ /></m:naryPr><m:sub>"
+            If c1 <> 0 Then
+                EmitNode c1
             End If
-            EmitNode = "<m:nary><m:naryPr><m:chr m:val=""" & ModTexSymbols.EscapeXml(nd.Str1) & """ /><m:limLoc m:val=""" & nd.Str2 & """ /><m:subHide m:val=""" & subHide & """ /><m:supHide m:val=""" & supHide & """ /></m:naryPr><m:sub>" & subXml & "</m:sub><m:sup>" & supXml & "</m:sup><m:e>" & bodyXml & "</m:e></m:nary>"
+            BufAppend "</m:sub><m:sup>"
+            If c2 <> 0 Then
+                EmitNode c2
+            End If
+            BufAppend "</m:sup><m:e>"
+            If c3 <> 0 Then
+                EmitNode c3
+            End If
+            BufAppend "</m:e></m:nary>"
 
         Case AST_DELIM
-            bodyXml = EmitNode(nd.Child1)
-            If nd.Bool1 Then
-                growXml = "<m:grow />"
-            Else
-                growXml = ""
+            BufAppend "<m:d><m:dPr><m:begChr m:val=""" & ModTexSymbols.EscapeXml(ModTexAst.mNodes(idx).Str1) & """ /><m:sepChr m:val="""" /><m:endChr m:val=""" & ModTexSymbols.EscapeXml(ModTexAst.mNodes(idx).Str2) & """ />"
+            If ModTexAst.mNodes(idx).Bool1 Then
+                BufAppend "<m:grow />"
             End If
-            EmitNode = "<m:d><m:dPr><m:begChr m:val=""" & ModTexSymbols.EscapeXml(nd.Str1) & """ /><m:endChr m:val=""" & ModTexSymbols.EscapeXml(nd.Str2) & """ /><m:sepChr m:val="""" />" & growXml & "</m:dPr><m:e>" & bodyXml & "</m:e></m:d>"
+            BufAppend "</m:dPr><m:e>"
+            EmitNode c1
+            BufAppend "</m:e></m:d>"
 
         Case AST_MATRIX
-            alignArr = Split(nd.Str1, ",")
+            If ModTexAst.mNodes(idx).ChildList Is Nothing Then
+                ModTexAst.SetAmbiguous True
+                mEmitDepth = mEmitDepth - 1
+                Exit Sub
+            End If
+            If ModTexAst.mNodes(idx).ChildList.Count = 0 Then
+                ModTexAst.SetAmbiguous True
+                mEmitDepth = mEmitDepth - 1
+                Exit Sub
+            End If
+            alignArr = Split(ModTexAst.mNodes(idx).Str1, ",")
             maxCols = 0
-            For Each vItem In nd.ChildList
+            For Each vItem In ModTexAst.mNodes(idx).ChildList
                 Set rowObj = vItem
                 If rowObj.Count > maxCols Then
                     maxCols = rowObj.Count
@@ -144,119 +213,154 @@ Private Function EmitNode(ByVal idx As Long) As String
             If maxCols = 0 Then
                 maxCols = 1
             End If
-            mcsXml = ""
+            BufAppend "<m:m><m:mPr><m:baseJc m:val=""center"" /><m:plcHide m:val=""on"" /><m:mcs>"
             For cIdx = 0 To maxCols - 1
                 If cIdx <= UBound(alignArr) Then
                     colAlign = alignArr(cIdx)
                 Else
                     colAlign = "center"
                 End If
-                mcsXml = mcsXml & "<m:mc><m:mcPr><m:mcJc m:val=""" & colAlign & """ /><m:count m:val=""1"" /></m:mcPr></m:mc>"
+                BufAppend "<m:mc><m:mcPr><m:count m:val=""1"" /><m:mcJc m:val=""" & colAlign & """ /></m:mcPr></m:mc>"
             Next cIdx
-            mprXml = "<m:mPr><m:baseJc m:val=""center"" /><m:plcHide m:val=""on"" /><m:mcs>" & mcsXml & "</m:mcs></m:mPr>"
-            mrXml = ""
-            For Each vItem In nd.ChildList
+            BufAppend "</m:mcs></m:mPr>"
+            For Each vItem In ModTexAst.mNodes(idx).ChildList
                 Set rowObj = vItem
-                eXml = ""
+                BufAppend "<m:mr>"
                 For Each cellIdx In rowObj
-                    eXml = eXml & "<m:e>" & EmitNode(CLng(cellIdx)) & "</m:e>"
+                    BufAppend "<m:e>"
+                    EmitNode CLng(cellIdx)
+                    BufAppend "</m:e>"
                 Next cellIdx
-                mrXml = mrXml & "<m:mr>" & eXml & "</m:mr>"
+                For cIdx = rowObj.Count + 1 To maxCols
+                    BufAppend "<m:e />"
+                Next cIdx
+                BufAppend "</m:mr>"
             Next vItem
-            EmitNode = "<m:m>" & mprXml & mrXml & "</m:m>"
+            BufAppend "</m:m>"
 
         Case AST_ACC
-            baseXml = EmitNode(nd.Child1)
-            EmitNode = "<m:acc><m:accPr><m:chr m:val=""" & ModTexSymbols.EscapeXml(nd.Str1) & """ /></m:accPr><m:e>" & baseXml & "</m:e></m:acc>"
+            BufAppend "<m:acc><m:accPr><m:chr m:val=""" & ModTexSymbols.EscapeXml(ModTexAst.mNodes(idx).Str1) & """ /></m:accPr><m:e>"
+            EmitNode c1
+            BufAppend "</m:e></m:acc>"
 
         Case AST_LIMLOW
-            baseXml = EmitNode(nd.Child1)
-            limXml = EmitNode(nd.Child2)
-            If nd.Str1 = "underbrace" Then
-                EmitNode = "<m:limLow><m:e><m:limLow><m:e>" & baseXml & "</m:e><m:lim><m:r><m:rPr><m:sty m:val=""p"" /></m:rPr><m:t>" & ChrW(&H23DF) & "</m:t></m:r></m:lim></m:limLow></m:e><m:lim>" & limXml & "</m:lim></m:limLow>"
+            If ModTexAst.mNodes(idx).Str1 = "underbrace" Then
+                BufAppend "<m:limLow><m:e><m:limLow><m:e>"
+                EmitNode c1
+                BufAppend "</m:e><m:lim><m:r><m:rPr><m:sty m:val=""p"" /></m:rPr><m:t>" & ChrW(&H23DF) & "</m:t></m:r></m:lim></m:limLow></m:e><m:lim>"
+                EmitNode c2
+                BufAppend "</m:lim></m:limLow>"
             Else
-                EmitNode = "<m:limLow><m:e>" & baseXml & "</m:e><m:lim>" & limXml & "</m:lim></m:limLow>"
+                BufAppend "<m:limLow><m:e>"
+                EmitNode c1
+                BufAppend "</m:e><m:lim>"
+                EmitNode c2
+                BufAppend "</m:lim></m:limLow>"
             End If
 
         Case AST_LIMUPP
-            baseXml = EmitNode(nd.Child1)
-            limXml = EmitNode(nd.Child2)
-            EmitNode = "<m:limUpp><m:e>" & baseXml & "</m:e><m:lim>" & limXml & "</m:lim></m:limUpp>"
+            BufAppend "<m:limUpp><m:e>"
+            EmitNode c1
+            BufAppend "</m:e><m:lim>"
+            EmitNode c2
+            BufAppend "</m:lim></m:limUpp>"
 
         Case AST_BORDERBOX
-            bodyXml = EmitNode(nd.Child1)
-            EmitNode = "<m:borderBox><m:e>" & bodyXml & "</m:e></m:borderBox>"
+            BufAppend "<m:borderBox><m:e>"
+            EmitNode c1
+            BufAppend "</m:e></m:borderBox>"
 
         Case AST_BAR
-            baseXml = EmitNode(nd.Child1)
-            EmitNode = "<m:bar><m:barPr><m:pos m:val=""" & nd.Str1 & """ /></m:barPr><m:e>" & baseXml & "</m:e></m:bar>"
+            BufAppend "<m:bar><m:barPr><m:pos m:val=""" & ModTexAst.mNodes(idx).Str1 & """ /></m:barPr><m:e>"
+            EmitNode c1
+            BufAppend "</m:e></m:bar>"
 
         Case AST_GROUPCHR
-            baseXml = EmitNode(nd.Child1)
-            If nd.Str2 = "top" Then
-                EmitNode = "<m:groupChr><m:groupChrPr><m:chr m:val=""" & ModTexSymbols.EscapeXml(nd.Str1) & """ /><m:pos m:val=""top"" /><m:vertJc m:val=""bot"" /></m:groupChrPr><m:e>" & baseXml & "</m:e></m:groupChr>"
+            BufAppend "<m:groupChr><m:groupChrPr><m:chr m:val=""" & ModTexSymbols.EscapeXml(ModTexAst.mNodes(idx).Str1) & """ /><m:pos m:val=""" & ModTexAst.mNodes(idx).Str2 & """ />"
+            If ModTexAst.mNodes(idx).Str2 = "top" Then
+                BufAppend "<m:vertJc m:val=""bot"" />"
             Else
-                EmitNode = "<m:groupChr><m:groupChrPr><m:chr m:val=""" & ModTexSymbols.EscapeXml(nd.Str1) & """ /><m:pos m:val=""" & nd.Str2 & """ /><m:vertJc m:val=""top"" /></m:groupChrPr><m:e>" & baseXml & "</m:e></m:groupChr>"
+                BufAppend "<m:vertJc m:val=""top"" />"
             End If
+            BufAppend "</m:groupChrPr><m:e>"
+            EmitNode c1
+            BufAppend "</m:e></m:groupChr>"
 
         Case AST_LIST
-            res = ""
-            For Each vItem In nd.ChildList
-                res = res & EmitNode(CLng(vItem))
-            Next vItem
-            EmitNode = res
-
-        Case Else
-            EmitNode = ""
+            If Not ModTexAst.mNodes(idx).ChildList Is Nothing Then
+                For Each vItem In ModTexAst.mNodes(idx).ChildList
+                    EmitNode CLng(vItem)
+                Next vItem
+            End If
     End Select
-End Function
+
+    mEmitDepth = mEmitDepth - 1
+End Sub
 
 Public Function TranspileLatexToOmml(ByVal rawLatex As String, ByVal isBlock As Boolean, ByRef outIsAmbiguous As Boolean, Optional ByRef outEqTag As String = "") As String
     Dim rootIdx As Long
-    Dim innerXml As String
 
     On Error GoTo ErrHandler
 
     rootIdx = ModTexParser.ParseLatex(rawLatex, isBlock, rootIdx, outIsAmbiguous, outEqTag)
     If outIsAmbiguous Then
+        ModTexAst.ReleaseArena
         TranspileLatexToOmml = ""
         Exit Function
     End If
 
-    innerXml = EmitNode(rootIdx)
-    TranspileLatexToOmml = "<m:oMath xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">" & innerXml & "</m:oMath>"
+    mEmitDepth = 0
+    BufInit
+    BufAppend "<m:oMath xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">"
+    EmitNode rootIdx
+    BufAppend "</m:oMath>"
+
+    If ModTexAst.mIsAmbiguous Then
+        outIsAmbiguous = True
+        Erase mParts
+        mPartCount = 0
+        ModTexAst.ReleaseArena
+        TranspileLatexToOmml = ""
+        Exit Function
+    End If
+
+    TranspileLatexToOmml = BufFlush()
+    ModTexAst.ReleaseArena
     Exit Function
 
 ErrHandler:
     outIsAmbiguous = True
+    Erase mParts
+    mPartCount = 0
+    ModTexAst.ReleaseArena
     TranspileLatexToOmml = ""
 End Function
 
 Public Function WrapOmmlInFlatOpc(ByVal ommlXml As String) As String
-    Dim pkg As String
-    pkg = "<?xml version=""1.0"" encoding=""UTF-8"" standalone=""yes""?>" & vbCrLf
-    pkg = pkg & "<?mso-application progid=""Word.Document""?>" & vbCrLf
-    pkg = pkg & "<pkg:package xmlns:pkg=""http://schemas.microsoft.com/office/2006/xmlPackage"">" & vbCrLf
-    pkg = pkg & "  <pkg:part pkg:name=""/_rels/.rels"" pkg:contentType=""application/vnd.openxmlformats-package.relationships+xml"">" & vbCrLf
-    pkg = pkg & "    <pkg:xmlData>" & vbCrLf
-    pkg = pkg & "      <Relationships xmlns=""http://schemas.openxmlformats.org/package/2006/relationships"">" & vbCrLf
-    pkg = pkg & "        <Relationship Id=""rId1"" Type=""http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"" Target=""word/document.xml""/>" & vbCrLf
-    pkg = pkg & "      </Relationships>" & vbCrLf
-    pkg = pkg & "    </pkg:xmlData>" & vbCrLf
-    pkg = pkg & "  </pkg:part>" & vbCrLf
-    pkg = pkg & "  <pkg:part pkg:name=""/word/document.xml"" pkg:contentType=""application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"">" & vbCrLf
-    pkg = pkg & "    <pkg:xmlData>" & vbCrLf
-    pkg = pkg & "      <w:document xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"" xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">" & vbCrLf
-    pkg = pkg & "        <w:body>" & vbCrLf
-    pkg = pkg & "          <w:p>" & vbCrLf
-    pkg = pkg & "            " & ommlXml & vbCrLf
-    pkg = pkg & "          </w:p>" & vbCrLf
-    pkg = pkg & "        </w:body>" & vbCrLf
-    pkg = pkg & "      </w:document>" & vbCrLf
-    pkg = pkg & "    </pkg:xmlData>" & vbCrLf
-    pkg = pkg & "  </pkg:part>" & vbCrLf
-    pkg = pkg & "</pkg:package>"
-    WrapOmmlInFlatOpc = pkg
+    Dim lines(0 To 21) As String
+    lines(0) = "<?xml version=""1.0"" encoding=""UTF-8"" standalone=""yes""?>"
+    lines(1) = "<?mso-application progid=""Word.Document""?>"
+    lines(2) = "<pkg:package xmlns:pkg=""http://schemas.microsoft.com/office/2006/xmlPackage"">"
+    lines(3) = "  <pkg:part pkg:name=""/_rels/.rels"" pkg:contentType=""application/vnd.openxmlformats-package.relationships+xml"">"
+    lines(4) = "    <pkg:xmlData>"
+    lines(5) = "      <Relationships xmlns=""http://schemas.openxmlformats.org/package/2006/relationships"">"
+    lines(6) = "        <Relationship Id=""rId1"" Type=""http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"" Target=""word/document.xml""/>"
+    lines(7) = "      </Relationships>"
+    lines(8) = "    </pkg:xmlData>"
+    lines(9) = "  </pkg:part>"
+    lines(10) = "  <pkg:part pkg:name=""/word/document.xml"" pkg:contentType=""application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"">"
+    lines(11) = "    <pkg:xmlData>"
+    lines(12) = "      <w:document xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"" xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">"
+    lines(13) = "        <w:body>"
+    lines(14) = "          <w:p>"
+    lines(15) = "            " & ommlXml
+    lines(16) = "          </w:p>"
+    lines(17) = "        </w:body>"
+    lines(18) = "      </w:document>"
+    lines(19) = "    </pkg:xmlData>"
+    lines(20) = "  </pkg:part>"
+    lines(21) = "</pkg:package>"
+    WrapOmmlInFlatOpc = Join(lines, vbCrLf)
 End Function
 
 Public Function TranspileLatexForTest(ByVal rawLatex As String, ByVal isBlock As Boolean) As String

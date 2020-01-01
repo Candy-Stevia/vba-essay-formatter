@@ -81,7 +81,19 @@ Public Function GenerateBackupFilePath(ByVal doc As Document) As String
         ext = ".docx"
     End If
     timeStamp = Format$(Now, "yyyymmdd_hhnnss")
-    GenerateBackupFilePath = folderPath & baseName & "_crash_backup_" & timeStamp & ext
+    Dim candidate As String, seq As Long
+    candidate = folderPath & baseName & "_crash_backup_" & timeStamp & ext
+    If FileExistsUnicode(candidate) Then
+        seq = 1
+        Do While seq <= 99
+            candidate = folderPath & baseName & "_crash_backup_" & timeStamp & "_" & CStr(seq) & ext
+            If Not FileExistsUnicode(candidate) Then
+                Exit Do
+            End If
+            seq = seq + 1
+        Loop
+    End If
+    GenerateBackupFilePath = candidate
 End Function
 
 ' --- Unicode Native File Helpers (Scripting.FileSystemObject) ---
@@ -99,11 +111,25 @@ End Function
 
 Public Sub DeleteFileUnicode(ByVal filePath As String)
     On Error Resume Next
-    If Len(filePath) = 0 Then Exit Sub
+    If Len(filePath) = 0 Then
+        Exit Sub
+    End If
+    Dim slashPos As Long, fileName As String
+    slashPos = InStrRev(filePath, "\")
+    If slashPos > 0 Then
+        fileName = Mid$(filePath, slashPos + 1)
+    Else
+        fileName = filePath
+    End If
+    If Not (LCase$(fileName) Like "*_crash_backup_*") Then
+        Exit Sub
+    End If
     Dim fso As Object
     Set fso = CreateObject("Scripting.FileSystemObject")
     If Not fso Is Nothing Then
-        If fso.FileExists(filePath) Then fso.DeleteFile filePath, True
+        If fso.FileExists(filePath) Then
+            fso.DeleteFile filePath, True
+        End If
     End If
 End Sub
 
@@ -117,14 +143,25 @@ Public Function CreatePhysicalBackup(ByVal doc As Document, ByRef outBackupPath 
     ' 1. Attempt WordBasic.CopyFileA first
     On Error Resume Next
     WordBasic.CopyFileA doc.FullName, outBackupPath
+    Err.Clear
     On Error GoTo ErrorHandler
     
     ' 2. Fallback to FSO CopyFile if destination does not exist (Unicode path)
+    Dim fsoErrNum As Long, fsoErrDesc As String
+    fsoErrNum = 0
+    fsoErrDesc = ""
     If Not FileExistsUnicode(outBackupPath) Then
         On Error Resume Next
         Dim fso As Object
         Set fso = CreateObject("Scripting.FileSystemObject")
-        If Not fso Is Nothing Then fso.CopyFile doc.FullName, outBackupPath, True
+        If Not fso Is Nothing Then
+            fso.CopyFile doc.FullName, outBackupPath, True
+            If Err.Number <> 0 Then
+                fsoErrNum = Err.Number
+                fsoErrDesc = Err.Description
+                Err.Clear
+            End If
+        End If
         On Error GoTo ErrorHandler
     End If
     
@@ -132,7 +169,12 @@ Public Function CreatePhysicalBackup(ByVal doc As Document, ByRef outBackupPath 
     If FileExistsUnicode(outBackupPath) Then
         CreatePhysicalBackup = True
     Else
-        outErrorMessage = ModConstants.Uni("Backup failed: file not found at (Sao l\u01b0u th\u1ea5t b\u1ea1i, kh\u00f4ng th\u1ea5y file t\u1ea1i): ") & outBackupPath
+        DeleteFileUnicode outBackupPath
+        If fsoErrNum <> 0 Then
+            outErrorMessage = ModConstants.Uni("Backup error (L\u1ed7i sao l\u01b0u) (") & fsoErrNum & "): " & fsoErrDesc
+        Else
+            outErrorMessage = ModConstants.Uni("Backup failed: file not found at (Sao l\u01b0u th\u1ea5t b\u1ea1i, kh\u00f4ng th\u1ea5y file t\u1ea1i): ") & outBackupPath
+        End If
         CreatePhysicalBackup = False
     End If
     Exit Function

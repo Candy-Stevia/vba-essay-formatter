@@ -31,12 +31,12 @@ Public Type TexToken
 End Type
 
 Private Function IsAlpha(ByVal ch As String) As Boolean
-    Dim c As Integer
+    Dim c As Long
     If Len(ch) = 0 Then
         IsAlpha = False
         Exit Function
     End If
-    c = Asc(ch)
+    c = AscW(ch) And &HFFFF&
     If (c >= 65 And c <= 90) Or (c >= 97 And c <= 122) Then
         IsAlpha = True
     Else
@@ -45,10 +45,106 @@ Private Function IsAlpha(ByVal ch As String) As Boolean
 End Function
 
 Private Function IsSpaceChar(ByVal ch As String) As Boolean
-    If ch = " " Or ch = vbTab Or ch = vbCr Or ch = vbLf Then
+    If Len(ch) = 0 Then
+        IsSpaceChar = False
+        Exit Function
+    End If
+    If ch = " " Or ch = vbTab Or ch = vbCr Or ch = vbLf Or ch = ChrW(11) Or ch = ChrW(&HA0) Then
         IsSpaceChar = True
     Else
         IsSpaceChar = False
+    End If
+End Function
+
+Private Function IsTexDimension(ByVal s As String) As Boolean
+    Dim n As Long
+    Dim i As Long
+    Dim ch As String
+    Dim hasDigit As Boolean
+    Dim hasDot As Boolean
+    Dim unitStr As String
+
+    n = Len(s)
+    If n < 3 Then
+        IsTexDimension = False
+        Exit Function
+    End If
+    i = 1
+    ch = Mid$(s, i, 1)
+    If ch = "+" Or ch = "-" Then
+        i = i + 1
+    End If
+    hasDigit = False
+    hasDot = False
+    Do While i <= n
+        ch = Mid$(s, i, 1)
+        If ch >= "0" And ch <= "9" Then
+            hasDigit = True
+            i = i + 1
+        ElseIf ch = "." And Not hasDot Then
+            hasDot = True
+            i = i + 1
+        Else
+            Exit Do
+        End If
+    Loop
+    If Not hasDigit Then
+        IsTexDimension = False
+        Exit Function
+    End If
+    Do While i <= n
+        If Mid$(s, i, 1) = " " Then
+            i = i + 1
+        Else
+            Exit Do
+        End If
+    Loop
+    unitStr = LCase$(Mid$(s, i))
+    If Len(unitStr) <> 2 Then
+        IsTexDimension = False
+    ElseIf InStr(1, "|pt|pc|in|bp|cm|mm|dd|cc|sp|em|ex|mu|", "|" & unitStr & "|") > 0 Then
+        IsTexDimension = True
+    Else
+        IsTexDimension = False
+    End If
+End Function
+
+Private Function SkipLineBreakOptArg(ByVal text As String, ByVal pos As Long, ByVal textLen As Long) As Long
+    Dim p As Long
+    Dim closePos As Long
+    Dim inner As String
+
+    p = pos
+    If p <= textLen Then
+        If Mid$(text, p, 1) = "*" Then
+            p = p + 1
+        End If
+    End If
+    Do While p <= textLen
+        If IsSpaceChar(Mid$(text, p, 1)) Then
+            p = p + 1
+        Else
+            Exit Do
+        End If
+    Loop
+    If p > textLen Then
+        SkipLineBreakOptArg = pos
+        Exit Function
+    End If
+    If Mid$(text, p, 1) <> "[" Then
+        SkipLineBreakOptArg = pos
+        Exit Function
+    End If
+    closePos = InStr(p + 1, text, "]")
+    If closePos = 0 Or closePos - p > 24 Then
+        SkipLineBreakOptArg = pos
+        Exit Function
+    End If
+    inner = Trim$(Mid$(text, p + 1, closePos - p - 1))
+    If IsTexDimension(inner) Then
+        SkipLineBreakOptArg = closePos + 1
+    Else
+        SkipLineBreakOptArg = pos
     End If
 End Function
 
@@ -64,14 +160,37 @@ Public Sub TokenizeLatex(ByVal text As String)
     pos = 1
 
     Do While pos <= textLen
+        If ModTexAst.mTokenCount >= ModTexAst.MAX_TOKENS Then
+            ModTexAst.SetAmbiguous True
+            Exit Do
+        End If
         ch = Mid$(text, pos, 1)
 
         If IsSpaceChar(ch) Then
             startPos = pos
-            Do While pos <= textLen And IsSpaceChar(Mid$(text, pos, 1))
-                pos = pos + 1
+            Do While pos <= textLen
+                If IsSpaceChar(Mid$(text, pos, 1)) Then
+                    pos = pos + 1
+                Else
+                    Exit Do
+                End If
             Loop
             ModTexAst.AddToken TOK_SPACE, " ", startPos
+        ElseIf ch = "%" Then
+            pos = pos + 1
+            Do While pos <= textLen
+                ch = Mid$(text, pos, 1)
+                If ch = vbCr Or ch = vbLf Or ch = ChrW(11) Then
+                    pos = pos + 1
+                    If ch = vbCr And pos <= textLen Then
+                        If Mid$(text, pos, 1) = vbLf Then
+                            pos = pos + 1
+                        End If
+                    End If
+                    Exit Do
+                End If
+                pos = pos + 1
+            Loop
         ElseIf ch = "\" Then
             startPos = pos
             pos = pos + 1
@@ -82,6 +201,7 @@ Public Sub TokenizeLatex(ByVal text As String)
                 If nextCh = "\" Then
                     pos = pos + 1
                     ModTexAst.AddToken TOK_NEWLINE, "\\", startPos
+                    pos = SkipLineBreakOptArg(text, pos, textLen)
                 ElseIf InStr(1, "%&$#_{} ", nextCh) > 0 Then
                     pos = pos + 1
                     ModTexAst.AddToken TOK_ESC_CHAR, nextCh, startPos
@@ -90,13 +210,19 @@ Public Sub TokenizeLatex(ByVal text As String)
                     ModTexAst.AddToken TOK_CMD, "\" & nextCh, startPos
                 ElseIf IsAlpha(nextCh) Then
                     cmdLetters = ""
-                    Do While pos <= textLen And IsAlpha(Mid$(text, pos, 1))
-                        cmdLetters = cmdLetters & Mid$(text, pos, 1)
-                        pos = pos + 1
+                    Do While pos <= textLen
+                        If IsAlpha(Mid$(text, pos, 1)) Then
+                            cmdLetters = cmdLetters & Mid$(text, pos, 1)
+                            pos = pos + 1
+                        Else
+                            Exit Do
+                        End If
                     Loop
-                    If pos <= textLen And Mid$(text, pos, 1) = "*" Then
-                        cmdLetters = cmdLetters & "*"
-                        pos = pos + 1
+                    If cmdLetters = "operatorname" And pos <= textLen Then
+                        If Mid$(text, pos, 1) = "*" Then
+                            cmdLetters = cmdLetters & "*"
+                            pos = pos + 1
+                        End If
                     End If
                     ModTexAst.AddToken TOK_CMD, "\" & cmdLetters, startPos
                 Else

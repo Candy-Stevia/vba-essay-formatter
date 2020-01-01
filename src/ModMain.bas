@@ -17,11 +17,18 @@ Public Sub SetSimulateCrashError(ByVal val As Boolean)
 End Sub
 
 Public Sub RunEngine(Optional ByVal targetDoc As Document = Nothing, Optional ByVal runMode As Long = 1)
-    If runMode = ModConstants.EngineModeListsOnly Then
-        ModQuickUpdate.RunQuickUpdate targetDoc
+    If g_IsEngineRunning Or ModMathController.g_IsMathBuilding Then
         Exit Sub
     End If
-    If g_IsEngineRunning Then
+    If targetDoc Is Nothing Then
+        If Application.Documents.Count = 0 Then
+            ModUI.MsgBoxW ModConstants.Uni("No open Word document found. (Kh\u00f4ng t\u00ecm th\u1ea5y t\u00e0i li\u1ec7u Word \u0111ang m\u1edf.)"), _
+                          vbExclamation, ModConstants.Uni("Error (L\u1ed7i)")
+            Exit Sub
+        End If
+    End If
+    If runMode = ModConstants.EngineModeListsOnly Then
+        ModQuickUpdate.RunQuickUpdate targetDoc
         Exit Sub
     End If
     g_IsEngineRunning = True
@@ -30,6 +37,10 @@ Public Sub RunEngine(Optional ByVal targetDoc As Document = Nothing, Optional By
     
     Dim isFullySuccess As Boolean
     isFullySuccess = False
+    Dim diagStarted As Boolean
+    diagStarted = False
+    Dim pendingErrAlert As String
+    pendingErrAlert = ""
     Dim backupPath As String, errMsg As String
     Dim wasTracking As Boolean
     wasTracking = False
@@ -51,10 +62,13 @@ Public Sub RunEngine(Optional ByVal targetDoc As Document = Nothing, Optional By
         GoTo CleanExit
     End If
     
-    ' Ensure Ribbon Config is Initialized
+    ' Ensure Ribbon Config is Initialized and Snapshot Config for Run Duration
     ModRibbonCallbacks.EnsureConfigInitialized
+    Dim cfg As EngineRibbonConfig
+    cfg = ModRibbonCallbacks.g_Config
     If g_EnableDiag Then
         ModDiag.DiagStart doc, "baseline_run"
+        diagStarted = True
     End If
     
     ' Step 1: Pre-Flight Document Safety Checks
@@ -93,7 +107,7 @@ Public Sub RunEngine(Optional ByVal targetDoc As Document = Nothing, Optional By
     screenUpdatingDisabled = True
     
     Dim prevViewType As Long, prevPagination As Boolean, hasWindowView As Boolean
-    Dim hasPaginationState As Boolean
+    Dim hasPaginationState As Boolean, winCount As Long
     hasPaginationState = False
     hasWindowView = False
     On Error Resume Next
@@ -104,10 +118,24 @@ Public Sub RunEngine(Optional ByVal targetDoc As Document = Nothing, Optional By
     Else
         Err.Clear
     End If
-    If Not doc.ActiveWindow Is Nothing Then
-        prevViewType = doc.ActiveWindow.View.Type
-        hasWindowView = True
-        doc.ActiveWindow.View.Type = 1 ' wdNormalView = 1
+    winCount = doc.Windows.Count
+    If Err.Number <> 0 Then
+        winCount = 0
+        Err.Clear
+    End If
+    If winCount > 0 Then
+        If Not doc.ActiveWindow Is Nothing Then
+            prevViewType = doc.ActiveWindow.View.Type
+            If Err.Number = 0 Then
+                hasWindowView = True
+                doc.ActiveWindow.View.Type = 1 ' wdNormalView = 1
+                If Err.Number <> 0 Then
+                    Err.Clear
+                End If
+            Else
+                Err.Clear
+            End If
+        End If
     End If
     On Error GoTo MainErrorHandler
     
@@ -167,28 +195,28 @@ Public Sub RunEngine(Optional ByVal targetDoc As Document = Nothing, Optional By
     
     ' Resolve Page Sync Mode
     Dim pageMode As Long
-    If g_Config.IsFooterPage Then pageMode = PageSyncRealFooter Else pageMode = PageSyncPhysicalPage
+    If cfg.IsFooterPage Then pageMode = PageSyncRealFooter Else pageMode = PageSyncPhysicalPage
     
     ' Step 9: Phase 2 Record 1 or Mode B Ensure Target Bookmarks (R-01 check)
     Dim stats As FormatStats
     If runMode = EngineModeFull Then
-        ModProgress.ProgressSetPhase ModConstants.Uni("Formatting Content (\u0110\u1ecbnh d\u1ea1ng n\u1ed9i dung)"), 40#, 25#
-        If Not ExecuteRecord1(doc, snapshots, totalCount, g_Config.FontName, g_Config.FontSize, _
-                              g_Config.LineSpacingMode, g_Config.IndentPts, stats) Then
+        ModProgress.ProgressSetPhase ModConstants.Uni("Formatting Content (\u0110\u1ecbnh d\u1ea1ng n\u1ed9i dung)"), 40#, 22#
+        If Not ExecuteRecord1(doc, snapshots, totalCount, cfg.FontName, cfg.FontSize, _
+                              cfg.LineSpacingMode, cfg.IndentPts, stats) Then
             Err.Raise vbObjectError + 1002, "RunEngine", "ExecuteRecord1 failed"
         End If
         If g_EnableDiag Then
             ModDiag.DiagLog "Step 9: ExecuteRecord1 Completed"
         End If
         ModProgress.ProgressSetPhase ModConstants.Uni("Linking Cross-Refs (G\u1EAFn link tham chi\u1EBFu)"), 62#, 3#
-        ModCrossRef.ApplyCrossReferences doc, markers, snapshots, totalCount, g_Config.CrossRefColor
+        ModCrossRef.ApplyCrossReferences doc, markers, snapshots, totalCount, cfg.CrossRefColor
     Else
         EnsureTargetBookmarks doc, snapshots, totalCount
     End If
     
     ' Step 10: Phase 3 Record 2 - List of Figures (LOF) (R-01 check)
     ModProgress.ProgressSetPhase ModConstants.Uni("Building Figure List (D\u1ef1ng DM H\u00ecnh)"), 65#, 5#
-    If Not BuildListOfFigures(doc, markers, snapshots, totalCount, g_Config.FontName, g_Config.FontSize, pageMode, False) Then
+    If Not BuildListOfFigures(doc, markers, snapshots, totalCount, cfg.FontName, cfg.FontSize, pageMode, False) Then
         Err.Raise vbObjectError + 1003, "RunEngine", "BuildListOfFigures failed"
     End If
     If g_EnableDiag Then
@@ -197,7 +225,7 @@ Public Sub RunEngine(Optional ByVal targetDoc As Document = Nothing, Optional By
     
     ' Step 11: Phase 4 Record 3 - List of Tables (LOT) (R-01 check)
     ModProgress.ProgressSetPhase ModConstants.Uni("Building Table List (D\u1ef1ng DM B\u1ea3ng)"), 70#, 5#
-    If Not BuildListOfTables(doc, markers, snapshots, totalCount, g_Config.FontName, g_Config.FontSize, pageMode, False) Then
+    If Not BuildListOfTables(doc, markers, snapshots, totalCount, cfg.FontName, cfg.FontSize, pageMode, False) Then
         Err.Raise vbObjectError + 1004, "RunEngine", "BuildListOfTables failed"
     End If
     If g_EnableDiag Then
@@ -206,8 +234,8 @@ Public Sub RunEngine(Optional ByVal targetDoc As Document = Nothing, Optional By
     
     ' Step 12: Phase 5 Record 4 - Table of Contents & 2-Phase Page Sync (R-01 check)
     ModProgress.ProgressSetPhase ModConstants.Uni("Building TOC (D\u1ef1ng M\u1ee5c l\u1ee5c)"), 75#, 5#
-    If Not BuildTableOfContents(doc, markers, snapshots, totalCount, g_Config.FontName, g_Config.FontSize, _
-                                pageMode, g_Config.IsBoldTOC, g_Config.TocDepth, False) Then
+    If Not BuildTableOfContents(doc, markers, snapshots, totalCount, cfg.FontName, cfg.FontSize, _
+                                pageMode, cfg.IsBoldTOC, cfg.TocDepth, False) Then
         Err.Raise vbObjectError + 1005, "RunEngine", "BuildTableOfContents failed"
     End If
     If g_EnableDiag Then
@@ -236,8 +264,9 @@ Public Sub RunEngine(Optional ByVal targetDoc As Document = Nothing, Optional By
     
     ' Step 13: Final Marker Highlighting
     HighlightMarkers doc
-    If g_EnableDiag Then
+    If diagStarted Then
         ModDiag.DiagEnd "SUCCESS"
+        diagStarted = False
     End If
     isFullySuccess = True
     GoTo CleanExit
@@ -263,7 +292,8 @@ MainErrorHandler:
                        vbCrLf & backupPath
         End If
     End If
-    ModUI.MsgBoxW errAlert, vbCritical, ModConstants.Uni("Error - Backup Safe (L\u1ed7i - \u0110\u00e3 b\u1ea3o to\u00e0n Backup)")
+    pendingErrAlert = errAlert
+    Resume CleanExit
 
 CleanExit:
     On Error Resume Next
@@ -289,7 +319,13 @@ CleanExit:
     If screenUpdatingDisabled Then
         Application.ScreenUpdating = prevScreen
     End If
-    If isFullySuccess Then
+    If diagStarted Then
+        ModDiag.DiagEnd "FAILED"
+        diagStarted = False
+    End If
+    If Len(pendingErrAlert) > 0 Then
+        ModUI.MsgBoxW pendingErrAlert, vbCritical, ModConstants.Uni("Error - Backup Safe (L\u1ed7i - \u0110\u00e3 b\u1ea3o to\u00e0n Backup)")
+    ElseIf isFullySuccess Then
         If runMode = EngineModeFull Then
             ShowSummaryReport stats, latexWarnings
         Else

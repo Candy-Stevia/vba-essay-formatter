@@ -67,26 +67,59 @@ End Enum
 
 ' --- Unicode Decoder (Prevent VBE Mojibake) ---
 
+Private Function IsHex4(ByVal h As String) As Boolean
+    Dim k As Long, code As Long
+    If Len(h) <> 4 Then
+        IsHex4 = False
+        Exit Function
+    End If
+    For k = 1 To 4
+        code = AscW(Mid$(h, k, 1))
+        If Not ((code >= 48 And code <= 57) Or (code >= 65 And code <= 70) Or (code >= 97 And code <= 102)) Then
+            IsHex4 = False
+            Exit Function
+        End If
+    Next k
+    IsHex4 = True
+End Function
+
 Public Function Uni(ByVal s As String) As String
     ' Decodes ASCII \uXXXX sequences into UTF-16 Unicode strings
-    Dim res As String, i As Long, ch As String, hexCode As String
-    i = 1
-    Do While i <= Len(s)
-        ch = Mid$(s, i, 1)
-        If ch = "\" And (i + 5 <= Len(s)) Then
-            If Mid$(s, i + 1, 1) = "u" Then
-                hexCode = Mid$(s, i + 2, 4)
+    Dim uPos As Long, startPos As Long, sLen As Long
+    Dim res As String, hexCode As String
+    uPos = InStr(1, s, "\u", vbBinaryCompare)
+    If uPos = 0 Then
+        Uni = s
+        Exit Function
+    End If
+    sLen = Len(s)
+    startPos = 1
+    Do While uPos > 0
+        If uPos > startPos Then
+            res = res & Mid$(s, startPos, uPos - startPos)
+        End If
+        If uPos + 5 <= sLen Then
+            hexCode = Mid$(s, uPos + 2, 4)
+            If IsHex4(hexCode) Then
                 res = res & ChrW(CLng("&H" & hexCode))
-                i = i + 6
+                startPos = uPos + 6
             Else
-                res = res & ch
-                i = i + 1
+                res = res & "\u"
+                startPos = uPos + 2
             End If
         Else
-            res = res & ch
-            i = i + 1
+            res = res & Mid$(s, uPos)
+            startPos = sLen + 1
+            Exit Do
         End If
+        If startPos > sLen Then
+            Exit Do
+        End If
+        uPos = InStr(startPos, s, "\u", vbBinaryCompare)
     Loop
+    If startPos <= sLen Then
+        res = res & Mid$(s, startPos)
+    End If
     Uni = res
 End Function
 

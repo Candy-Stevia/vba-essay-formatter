@@ -14,6 +14,8 @@ Private g_CurrentPhase As String
 Private g_PhaseBasePct As Single
 Private g_PhaseWeightPct As Single
 Private g_CursorSet As Boolean
+Private g_PrevDisplayStatusBar As Boolean
+Private g_HasSavedStatusBar As Boolean
 
 Private Const PUMP_INTERVAL_SEC As Single = 0.35
 
@@ -25,6 +27,14 @@ Public Sub ProgressInit(ByVal title As String)
     g_PhaseWeightPct = 10#
     g_LastPumpTime = Timer
     
+    If Not g_HasSavedStatusBar Then
+        g_PrevDisplayStatusBar = Application.DisplayStatusBar
+        If Err.Number = 0 Then
+            g_HasSavedStatusBar = True
+        Else
+            Err.Clear
+        End If
+    End If
     Application.DisplayStatusBar = True
     Application.System.Cursor = wdCursorWait
     g_CursorSet = True
@@ -120,7 +130,11 @@ Public Sub ProgressFinish()
         Application.System.Cursor = wdCursorNormal
         g_CursorSet = False
     End If
-    Application.StatusBar = False
+    Application.StatusBar = ""
+    If g_HasSavedStatusBar Then
+        Application.DisplayStatusBar = g_PrevDisplayStatusBar
+        g_HasSavedStatusBar = False
+    End If
 End Sub
 
 Private Function BuildProgressBar(ByVal pct As Long) As String

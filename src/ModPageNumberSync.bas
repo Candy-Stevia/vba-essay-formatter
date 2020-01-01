@@ -9,7 +9,7 @@ Option Explicit
 ' ==============================================================================
 
 Public Function ToRomanLowerCase(ByVal num As Long) As String
-    If num <= 0 Then
+    If num <= 0 Or num > 3999 Then
         ToRomanLowerCase = CStr(num)
         Exit Function
     End If
@@ -73,10 +73,31 @@ Public Function GetFormattedPageNumber(ByVal targetRng As Range, ByVal pageMode 
     End If
 End Function
 
-Public Function CalculateRightTab(ByVal doc As Document) As Single
-    With doc.PageSetup
-        CalculateRightTab = .PageWidth - .LeftMargin - .RightMargin
-    End With
+Public Function CalculateRightTab(ByVal doc As Document, Optional ByVal targetRng As Range = Nothing) As Single
+    On Error GoTo FallbackTab
+    Dim ps As PageSetup
+    If Not targetRng Is Nothing Then
+        If targetRng.Sections.Count >= 1 Then Set ps = targetRng.Sections(1).PageSetup
+    End If
+    If ps Is Nothing Then
+        If doc.Sections.Count >= 1 Then Set ps = doc.Sections(1).PageSetup Else Set ps = doc.PageSetup
+    End If
+    Dim w As Single
+    w = ps.PageWidth - ps.LeftMargin - ps.RightMargin
+    If w > 10# And w < 2000# Then
+        CalculateRightTab = w
+        Exit Function
+    End If
+FallbackTab:
+    On Error Resume Next
+    Dim w2 As Single
+    w2 = doc.Sections(1).PageSetup.PageWidth - doc.Sections(1).PageSetup.LeftMargin - doc.Sections(1).PageSetup.RightMargin
+    If Err.Number = 0 And w2 > 10# And w2 < 2000# Then
+        CalculateRightTab = w2
+    Else
+        Err.Clear
+        CalculateRightTab = 451.3!
+    End If
 End Function
 
 Public Sub ApplyListLineFormat(ByVal rng As Range, _
@@ -127,13 +148,11 @@ Public Function SyncAllListPages(ByVal doc As Document, ByVal pageMode As Long) 
     Dim bms() As String
     Dim oldVals() As String
     Dim newVals() As String
-    Dim zTags() As String
-    Dim pIndices() As Long
+    Dim pRngs() As Range
     ReDim bms(1 To totalParas)
     ReDim oldVals(1 To totalParas)
     ReDim newVals(1 To totalParas)
-    ReDim zTags(1 To totalParas)
-    ReDim pIndices(1 To totalParas)
+    ReDim pRngs(1 To totalParas)
     
     Dim validCount As Long
     validCount = 0
@@ -141,7 +160,6 @@ Public Function SyncAllListPages(ByVal doc As Document, ByVal pageMode As Long) 
     Dim curZName As String
     Dim zRng As Range
     Dim p As Paragraph
-    Dim k As Long
     Dim pText As String
     Dim tabIdx As Long
     Dim oldNum As String
@@ -151,14 +169,12 @@ Public Function SyncAllListPages(ByVal doc As Document, ByVal pageMode As Long) 
         curZName = CStr(zNames(zIdx))
         If doc.Bookmarks.Exists(curZName) Then
             Set zRng = doc.Bookmarks(curZName).Range
-            k = 0
             For Each p In zRng.Paragraphs
-                k = k + 1
                 If p.Range.Hyperlinks.Count > 0 Then
                     targetBm = p.Range.Hyperlinks(1).SubAddress
                     If Left$(targetBm, 3) = "bm_" And targetBm <> BM_SYS_GENERATED_BLOCK Then
                         pText = p.Range.Text
-                        tabIdx = InStr(pText, vbTab)
+                        tabIdx = InStrRev(pText, vbTab)
                         If tabIdx > 0 Then
                             oldNum = Mid$(pText, tabIdx + 1)
                             oldNum = Replace(Replace(Replace(oldNum, vbCr, ""), Chr(7), ""), Chr(11), "")
@@ -166,8 +182,7 @@ Public Function SyncAllListPages(ByVal doc As Document, ByVal pageMode As Long) 
                                 validCount = validCount + 1
                                 bms(validCount) = targetBm
                                 oldVals(validCount) = oldNum
-                                zTags(validCount) = curZName
-                                pIndices(validCount) = k
+                                Set pRngs(validCount) = p.Range
                             End If
                         End If
                     End If
@@ -189,10 +204,10 @@ Public Function SyncAllListPages(ByVal doc As Document, ByVal pageMode As Long) 
     Dim lastPassChanged As Boolean
     lastPassChanged = False
     Dim writeFailures As Long
-    writeFailures = 0
     
     For pass = 1 To 2
         anyChangedInPass = False
+        writeFailures = 0
         
         ' Phase A: Batch Read all page numbers across all zones on pristine layout
         For i = 1 To validCount
@@ -200,9 +215,7 @@ Public Function SyncAllListPages(ByVal doc As Document, ByVal pageMode As Long) 
                 newVals(i) = GetFormattedPageNumber(doc.Bookmarks(bms(i)).Range, pageMode)
             Else
                 If oldVals(i) = DUMMY_PAGE_STRING Then
-                    Dim fallbackRng As Range
-                    Set fallbackRng = doc.Bookmarks(zTags(i)).Range.Paragraphs(pIndices(i)).Range
-                    realPage = CStr(fallbackRng.Information(3))
+                    realPage = CStr(pRngs(i).Information(3))
                     If Len(realPage) = 0 Or realPage = "0" Then
                         realPage = "1"
                     End If
@@ -214,20 +227,23 @@ Public Function SyncAllListPages(ByVal doc As Document, ByVal pageMode As Long) 
             End If
         Next i
         
-        ' Phase B: Batch Write changed page numbers across all zones
+        ' Phase B: Batch Write changed page numbers across all zones (trailing tab-to-end sub-range)
         For i = 1 To validCount
             If oldVals(i) <> newVals(i) Then
                 Dim entryReplaced As Boolean
                 entryReplaced = False
-                If doc.Bookmarks.Exists(zTags(i)) Then
-                    If pIndices(i) <= doc.Bookmarks(zTags(i)).Range.Paragraphs.Count Then
-                        Set fRng = doc.Bookmarks(zTags(i)).Range.Paragraphs(pIndices(i)).Range.Duplicate
-                        fRng.Find.ClearFormatting
-                        didReplace = fRng.Find.Execute(FindText:=vbTab & oldVals(i), _
-                                                       MatchCase:=False, MatchWholeWord:=False, _
-                                                       MatchWildcards:=False, Forward:=True, Wrap:=0, _
-                                                       Format:=False, ReplaceWith:=vbTab & newVals(i), Replace:=1)
-                        If didReplace Then
+                If Not pRngs(i) Is Nothing Then
+                    Set fRng = pRngs(i).Duplicate
+                    fRng.Find.ClearFormatting
+                    fRng.Find.Replacement.ClearFormatting
+                    didReplace = fRng.Find.Execute(FindText:=vbTab & oldVals(i), _
+                                                   MatchCase:=False, MatchWholeWord:=False, _
+                                                   MatchWildcards:=False, Forward:=False, Wrap:=0, _
+                                                   Format:=False)
+                    If didReplace Then
+                        If fRng.Start >= pRngs(i).Start And fRng.End <= pRngs(i).End Then
+                            fRng.Start = fRng.Start + 1
+                            fRng.Text = newVals(i)
                             anyChangedInPass = True
                             oldVals(i) = newVals(i)
                             entryReplaced = True

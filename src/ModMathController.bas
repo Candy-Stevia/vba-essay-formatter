@@ -3,25 +3,45 @@ Option Explicit
 ' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ModMathController: Math conversion, Shading, Ribbon, Undo (vba_lint compliant)
-
-Private g_IsMathBuilding As Boolean
+Public g_IsMathBuilding As Boolean
 Public Function NextMathSeq(ByVal doc As Document) As Long
     NextMathSeq = ModMathHelpers.NextMathSeq(doc)
 End Function
 Public Sub SetDocVariable(ByVal doc As Document, ByVal varName As String, ByVal varVal As String)
     ModMathHelpers.SetDocVariable doc, varName, varVal
 End Sub
-Private Sub InsertOpcAndShade(ByVal doc As Document, ByVal targetRng As Range, ByVal ommlXml As String, ByVal isBlock As Boolean, ByVal bmID As String)
+Private Function StartUndoSafe(ByVal recName As String, ByRef outUndo As Object) As Boolean
+    On Error Resume Next
+    Err.Clear
+    Set outUndo = Application.UndoRecord
+    If Err.Number = 0 And Not outUndo Is Nothing Then
+        If Not outUndo.IsRecordingCustomRecord Then
+            Err.Clear
+            outUndo.StartCustomRecord recName
+            StartUndoSafe = (Err.Number = 0)
+        End If
+    End If
+    Err.Clear
+    On Error GoTo 0
+End Function
+Private Sub EndUndoSafe(ByRef ioUndo As Object, ByRef ioStarted As Boolean)
+    On Error Resume Next
+    If ioStarted Then
+        If Not ioUndo Is Nothing Then
+            If ioUndo.IsRecordingCustomRecord Then
+                ioUndo.EndCustomRecord
+            End If
+        End If
+        ioStarted = False
+    End If
+    Err.Clear
+End Sub
+Private Function InsertOpcAndShade(ByVal doc As Document, ByVal targetRng As Range, ByVal ommlXml As String, ByVal isBlock As Boolean, ByVal bmID As String) As Boolean
     Dim opcXml As String
     Dim om As OMath
     opcXml = ModOmmlEmit.WrapOmmlInFlatOpc(ommlXml)
-    Do While targetRng.End > targetRng.Start
-        If Right$(targetRng.Text, 1) = vbCr Or Right$(targetRng.Text, 1) = Chr(7) Then
-            targetRng.End = targetRng.End - 1
-        Else
-            Exit Do
-        End If
-    Loop
+    ModMathInline.TrimTrailingDomMarks targetRng
+    On Error GoTo FailInsert
     targetRng.InsertXML opcXml
     If targetRng.OMaths.Count > 0 Then
         Set om = targetRng.OMaths(1)
@@ -36,168 +56,195 @@ Private Sub InsertOpcAndShade(ByVal doc As Document, ByVal targetRng As Range, B
             ModMathHelpers.ApplyPastelShading om.Range, ModMathScanner.COLOR_PASTEL_CYAN
         End If
         doc.Bookmarks.Add bmID, om.Range
+        InsertOpcAndShade = True
     End If
-End Sub
-
-Public Function ConvertRangeToMath(ByVal doc As Document, ByVal targetRng As Range, ByVal rawLatex As String, ByVal isBlock As Boolean, ByRef outSeqId As Long, ByRef outIsPink As Boolean) As Boolean
+    Exit Function
+FailInsert:
+    Err.Clear
+End Function
+Private Function ConvertWithSeq(ByVal doc As Document, ByVal targetRng As Range, ByVal rawLatex As String, ByVal isBlock As Boolean, ByRef ioSeqId As Long, ByVal prevBm As String, ByRef outIsPink As Boolean) As Boolean
     Dim cleanLatex As String
     Dim eqTag As String
     Dim ommlXml As String
     Dim bmID As String
     Dim isAmb As Boolean
-    Dim seq As Long
-
-    seq = ModMathHelpers.NextMathSeq(doc)
-    outSeqId = seq
     cleanLatex = ModMathScanner.StripOuterDelims(rawLatex)
-    ommlXml = ModOmmlEmit.TranspileLatexToOmml(cleanLatex, isBlock, isAmb, eqTag)
-    bmID = "bm_math_" & Format$(seq, "00000")
-    ModMathHelpers.SetDocVariable doc, bmID, rawLatex
-    If isBlock Then
-        ModMathHelpers.SetDocVariable doc, bmID & "_isblock", "1"
-    Else
-        ModMathHelpers.SetDocVariable doc, bmID & "_isblock", "0"
+    If Len(cleanLatex) = 0 Or cleanLatex = "$" Then
+        If Len(prevBm) = 0 Then
+            Exit Function
+        End If
+        isAmb = True
     End If
-    If isAmb Or Len(ommlXml) = 0 Then
-        outIsPink = True
-        ModMathHelpers.ApplyPastelShading targetRng, ModMathScanner.COLOR_PASTEL_PINK
-        doc.Bookmarks.Add "bm_math_pink_" & Format$(seq, "00000"), targetRng
-    Else
-        outIsPink = False
-        InsertOpcAndShade doc, targetRng, ommlXml, isBlock, bmID
-        ConvertRangeToMath = True
+    If ioSeqId <= 0 Then
+        ioSeqId = ModMathHelpers.NextMathSeq(doc)
+    End If
+    bmID = "bm_math_" & Format$(ioSeqId, "00000")
+    If Not isAmb Then
+        If Len(rawLatex) > 16000 Or ModMathInline.HasForbiddenDomChar(targetRng.Text) Then
+            isAmb = True
+        Else
+            ommlXml = ModOmmlEmit.TranspileLatexToOmml(cleanLatex, isBlock, isAmb, eqTag)
+        End If
+    End If
+    outIsPink = True
+    If Not isAmb And Len(ommlXml) > 0 Then
+        If InsertOpcAndShade(doc, targetRng, ommlXml, isBlock, bmID) Then
+            If Len(prevBm) > 0 Then
+                If doc.Bookmarks.Exists(prevBm) Then
+                    doc.Bookmarks(prevBm).Delete
+                End If
+            End If
+            ModMathHelpers.SetDocVariable doc, bmID, rawLatex
+            ModMathHelpers.SetDocVariable doc, bmID & "_isblock", IIf(isBlock, "1", "0")
+            outIsPink = False
+            ConvertWithSeq = True
+            Exit Function
+        End If
+    End If
+    If Len(prevBm) = 0 Or Left$(prevBm, 12) = "bm_math_src_" Or Not doc.Bookmarks.Exists("bm_math_pink_" & Format$(ioSeqId, "00000")) Then
+        If Len(prevBm) > 0 Then
+            If doc.Bookmarks.Exists(prevBm) Then
+                doc.Bookmarks(prevBm).Delete
+            End If
+        End If
+        ModMathHelpers.MarkSpanPink doc, targetRng, ioSeqId, rawLatex
     End If
 End Function
-
+Public Function ConvertRangeToMath(ByVal doc As Document, ByVal targetRng As Range, ByVal rawLatex As String, ByVal isBlock As Boolean, ByRef outSeqId As Long, ByRef outIsPink As Boolean) As Boolean
+    outSeqId = 0
+    ConvertRangeToMath = ConvertWithSeq(doc, targetRng, rawLatex, isBlock, outSeqId, "", outIsPink)
+End Function
 Public Sub BuildAllMathInDocument(ByVal doc As Document)
-    Dim startP As Long
-    Dim pIdx As Long
-    Dim endPIdx As Long
     Dim pairCount As Long
     Dim k As Long
-    Dim cls As Long
     Dim dummySeq As Long
     Dim totalParas As Long
+    Dim pStep As Long
+    Dim docEnd As Long
     Dim prevViewType As Long
     Dim isPink As Boolean
     Dim isScanningActive As Boolean
     Dim isAmb As Boolean
     Dim weStartedUndo As Boolean
     Dim prevScreen As Boolean
-    Dim screenDisabled As Boolean
     Dim prevPagination As Boolean
     Dim hasPaginationState As Boolean
     Dim hasWindowView As Boolean
     Dim pStarts() As Long
     Dim pEnds() As Long
+    Dim clsArr() As Long
     Dim rawLatex As String
     Dim rawPText As String
     Dim pText As String
     Dim innerT As String
-    Dim cBefore As String
     Dim cAfter As String
     Dim candRng As Range
+    Dim fRng As Range
     Dim p As Paragraph
+    Dim nextP As Paragraph
+    Dim endPara As Paragraph
     Dim objUndo As Object
-
-    If g_IsMathBuilding Then
+    If g_IsMathBuilding Or doc Is Nothing Then
         Exit Sub
     End If
-    g_IsMathBuilding = True
-    weStartedUndo = False
-    screenDisabled = False
-    hasPaginationState = False
-    hasWindowView = False
     prevScreen = Application.ScreenUpdating
     On Error GoTo ErrHandler
+    g_IsMathBuilding = True
     Application.ScreenUpdating = False
-    screenDisabled = True
     On Error Resume Next
     prevPagination = Application.Options.Pagination
     If Err.Number = 0 Then
         hasPaginationState = True
         Application.Options.Pagination = False
-    Else
-        Err.Clear
     End If
+    Err.Clear
     If doc.Windows.Count > 0 Then
         If Not doc.ActiveWindow Is Nothing Then
             prevViewType = doc.ActiveWindow.View.Type
-            hasWindowView = True
-            doc.ActiveWindow.View.Type = 1
-        End If
-    End If
-    Set objUndo = Application.UndoRecord
-    If Not objUndo Is Nothing Then
-        If Not objUndo.IsRecordingCustomRecord Then
-            objUndo.StartCustomRecord "Build LaTeX Math (Review Mode)"
-            weStartedUndo = (Err.Number = 0)
+            If Err.Number = 0 Then
+                hasWindowView = True
+                doc.ActiveWindow.View.Type = 1
+            End If
+            Err.Clear
         End If
     End If
     On Error GoTo ErrHandler
+    weStartedUndo = StartUndoSafe("Build LaTeX Math (Review Mode)", objUndo)
     ModProgress.ProgressInit "LaTeX Math Engine"
     ModProgress.ProgressSetPhase ModConstants.Uni("Converting Math (Chuy\u1ec3n \u0111\u1ed5i to\u00e1n)"), 5#, 95#
     ModMathHelpers.InitMathSeqCache doc
     ModMathScanner.InitNoFlyZoneCache doc
     totalParas = doc.Paragraphs.Count
-    startP = 1
-    For pIdx = 1 To totalParas
-        pText = LCase$(Trim$(Replace(Replace(doc.Paragraphs(pIdx).Range.Text, vbCr, ""), Chr(11), "")))
-        If pText = "=contentstart()" Then
-            startP = pIdx + 1
-            Exit For
+    Set p = doc.Paragraphs.First
+    docEnd = doc.Content.End
+    Set fRng = doc.Content.Duplicate
+    ModMathHelpers.InitDomFind fRng.Find, "=contentStart()"
+    fRng.Find.MatchCase = False
+    Dim prevFindEnd As Long
+    prevFindEnd = 0
+    Do While fRng.Find.Execute
+        If fRng.End <= prevFindEnd Then
+            Exit Do
         End If
-    Next pIdx
+        prevFindEnd = fRng.End
+        pText = LCase$(Trim$(Replace(Replace(Replace(fRng.Paragraphs(1).Range.Text, vbCr, ""), Chr(11), " "), Chr(7), "")))
+        If pText = "=contentstart()" Then
+            Set p = fRng.Paragraphs(1).Next
+            Exit Do
+        End If
+        If fRng.End >= docEnd Then
+            Exit Do
+        End If
+        fRng.SetRange fRng.End, docEnd
+    Loop
     isScanningActive = True
-    pIdx = startP
-    Do While pIdx <= doc.Paragraphs.Count
-        ModProgress.ProgressUpdate pIdx, doc.Paragraphs.Count
-        Set p = doc.Paragraphs(pIdx)
+    Do While Not p Is Nothing
+        pStep = pStep + 1
+        If pStep <= totalParas Then
+            ModProgress.ProgressUpdate pStep, totalParas
+        End If
+        Set nextP = p.Next
         rawPText = p.Range.Text
-        pText = LCase$(Trim$(Replace(Replace(rawPText, vbCr, ""), Chr(11), "")))
+        pText = LCase$(Trim$(Replace(Replace(Replace(rawPText, vbCr, ""), Chr(11), " "), Chr(7), "")))
         If pText = "=contentend()" Then
             Exit Do
         End If
         If Not ModMathScanner.IsInNoFlyZoneCached(p.Range, rawPText, isScanningActive) Then
             If InStr(1, rawPText, "$") > 0 Or InStr(1, rawPText, "\") > 0 Then
-                If ModMathScanner.CheckMultilineBlock(doc, pIdx, endPIdx, rawLatex, isAmb) Then
-                    ConvertRangeToMath doc, doc.Range(doc.Paragraphs(pIdx).Range.Start, doc.Paragraphs(endPIdx).Range.End), rawLatex, True, dummySeq, isPink
-                    If isPink Then
-                        pIdx = endPIdx
-                    End If
+                If ModMathScanner.CheckMultilineBlock(doc, p, endPara, rawLatex, isAmb) Then
+                    Set nextP = endPara.Next
+                    ConvertRangeToMath doc, doc.Range(p.Range.Start, endPara.Range.End), rawLatex, True, dummySeq, isPink
                 Else
-                    pText = Trim$(Replace(Replace(Replace(rawPText, vbCr, ""), Chr(11), ""), Chr(7), ""))
-                    If pText = "$$" Or pText = "\[" Or pText = "\]" Then
-                        ' A delimiter on its own must never be treated as an empty formula.
-                    ElseIf (Left$(pText, 2) = "$$" And Right$(pText, 2) = "$$") Or (Left$(pText, 2) = "\[" And Right$(pText, 2) = "\]") Or (Left$(pText, 6) = "\begin" And InStr(1, pText, "\end{") > 0 And Right$(pText, 1) = "}") Then
+                    pText = Trim$(Replace(Replace(Replace(rawPText, vbCr, ""), Chr(11), " "), Chr(7), ""))
+                    If ModMathInline.IsSingleLineDisplayBlock(pText) Then
                         ConvertRangeToMath doc, p.Range, pText, True, dummySeq, isPink
-                    Else
+                    ElseIf pText <> "$$" And pText <> "\[" And pText <> "\]" And pText <> "$$$" And pText <> "$$$$" And pText <> "\[\]" Then
                         ModMathInline.FindInlinePairs doc, p, pStarts, pEnds, pairCount, rawPText
                         If pairCount > 0 Then
-                            For k = pairCount To 1 Step -1
+                            ReDim clsArr(1 To pairCount)
+                            For k = 1 To pairCount
                                 Set candRng = doc.Range(pStarts(k), pEnds(k))
                                 If Len(candRng.Text) >= 2 Then
                                     If Left$(candRng.Text, 2) = "\(" Then
-                                        cls = 1
+                                        clsArr(k) = 1
                                     Else
                                         innerT = Mid$(candRng.Text, 2, Len(candRng.Text) - 2)
-                                        cBefore = ""
-                                        If candRng.Start > p.Range.Start Then
-                                            cBefore = doc.Range(candRng.Start - 1, candRng.Start).Text
-                                        End If
                                         cAfter = ""
                                         If candRng.End < p.Range.End Then
                                             cAfter = doc.Range(candRng.End, candRng.End + 1).Text
                                         End If
-                                        cls = ModMathScanner.ClassifyDollarSpan(innerT, cBefore, cAfter)
+                                        clsArr(k) = ModMathScanner.ClassifyDollarSpan(innerT, "", cAfter)
                                     End If
-                                    If cls = 1 Then
+                                End If
+                            Next k
+                            For k = pairCount To 1 Step -1
+                                If clsArr(k) = 1 Or clsArr(k) = 2 Then
+                                    Set candRng = doc.Range(pStarts(k), pEnds(k))
+                                    If clsArr(k) = 1 Then
                                         ConvertRangeToMath doc, candRng, candRng.Text, False, dummySeq, isPink
-                                    ElseIf cls = 2 Then
+                                    ElseIf Not ModMathInline.HasForbiddenDomChar(candRng.Text) Then
                                         dummySeq = ModMathHelpers.NextMathSeq(doc)
-                                        ModMathHelpers.ApplyPastelShading candRng, ModMathScanner.COLOR_PASTEL_PINK
-                                        doc.Bookmarks.Add "bm_math_pink_" & Format$(dummySeq, "00000"), candRng
-                                        ModMathHelpers.SetDocVariable doc, "bm_math_" & Format$(dummySeq, "00000"), candRng.Text
+                                        ModMathHelpers.MarkSpanPink doc, candRng, dummySeq, candRng.Text
                                     End If
                                 End If
                             Next k
@@ -206,122 +253,88 @@ Public Sub BuildAllMathInDocument(ByVal doc As Document)
                 End If
             End If
         End If
-        pIdx = pIdx + 1
+        Set p = nextP
     Loop
-
 CleanExit:
     On Error Resume Next
     ModMathHelpers.FlushMathSeqCache doc
     ModMathHelpers.ResetMathSeqCache
     ModMathScanner.ResetNoFlyZoneCache
     ModProgress.ProgressFinish
-    If hasWindowView Then
+    If hasWindowView And doc.Windows.Count > 0 Then
         doc.ActiveWindow.View.Type = prevViewType
     End If
     If hasPaginationState Then
         Application.Options.Pagination = prevPagination
     End If
-    If weStartedUndo Then
-        If Not objUndo Is Nothing Then
-            If objUndo.IsRecordingCustomRecord Then
-                objUndo.EndCustomRecord
-            End If
-        End If
-        weStartedUndo = False
-    End If
-    If screenDisabled Then
-        Application.ScreenUpdating = prevScreen
-    End If
+    EndUndoSafe objUndo, weStartedUndo
+    Application.ScreenUpdating = prevScreen
     g_IsMathBuilding = False
     Exit Sub
 ErrHandler:
     Resume CleanExit
 End Sub
-
 Public Sub ToggleMathAtSelection(ByVal doc As Document)
     Dim selRng As Range
     Dim foundBm As String
     Dim rawLatex As String
     Dim idStr As String
-    Dim cleanLatex As String
-    Dim eqTag As String
-    Dim ommlXml As String
     Dim foundKind As Long
-    Dim dummySeq As Long
+    Dim seqNum As Long
     Dim isBlock As Boolean
-    Dim isAmb As Boolean
     Dim isPink As Boolean
-
+    Dim weStartedUndo As Boolean
+    Dim objUndo As Object
+    If g_IsMathBuilding Or doc Is Nothing Then
+        Exit Sub
+    End If
+    If Selection.StoryType <> 1 Then
+        Exit Sub
+    End If
     On Error GoTo ErrHandler
+    weStartedUndo = StartUndoSafe("Toggle LaTeX Math", objUndo)
     If Not ModMathHelpers.FindEnclosingMathBookmark(doc, Selection.Start, Selection.End, foundBm, foundKind) Then
         If Selection.End > Selection.Start Then
             Set selRng = Selection.Range
             ModMathInline.TrimMathRange selRng
             If selRng.End > selRng.Start Then
                 rawLatex = selRng.Text
-                If Left$(rawLatex, 2) = "$$" Or Left$(rawLatex, 2) = "\[" Or (Left$(rawLatex, 6) = "\begin" And Left$(rawLatex, 2) <> "\(") Then
-                    isBlock = True
-                Else
-                    isBlock = False
-                End If
-                ConvertRangeToMath doc, selRng, rawLatex, isBlock, dummySeq, isPink
+                ConvertRangeToMath doc, selRng, rawLatex, ModMathHelpers.InferIsBlock(rawLatex, doc, ""), seqNum, isPink
             End If
         End If
-        Exit Sub
-    End If
-
-    idStr = Mid$(foundBm, InStrRev(foundBm, "_") + 1)
-    If foundKind = ModMathScanner.BM_KIND_OMATH Then
-        rawLatex = ModMathHelpers.GetDocVariable(doc, foundBm)
-        If Len(rawLatex) = 0 Then
-            ModMathHelpers.NotifyUser ModConstants.Uni("Original LaTeX source not found. (Kh\u00f4ng t\u00ecm th\u1ea5y m\u00e3 LaTeX g\u1ed1c.)")
-            Exit Sub
-        End If
-        Set selRng = doc.Bookmarks(foundBm).Range
-        doc.Bookmarks(foundBm).Delete
-        selRng.Delete
-        selRng.Text = rawLatex
-        ModMathHelpers.ApplyPastelShading selRng, ModMathScanner.COLOR_PASTEL_AMBER
-        doc.Bookmarks.Add "bm_math_src_" & idStr, selRng
-        Exit Sub
-    End If
-
-    If foundKind = ModMathScanner.BM_KIND_SRC Or foundKind = ModMathScanner.BM_KIND_PINK Then
-        Set selRng = doc.Bookmarks(foundBm).Range
-        rawLatex = selRng.Text
-        cleanLatex = ModMathScanner.StripOuterDelims(rawLatex)
-        If ModMathHelpers.GetDocVariable(doc, "bm_math_" & idStr & "_isblock") = "1" Then
-            isBlock = True
-        ElseIf ModMathHelpers.GetDocVariable(doc, "bm_math_" & idStr & "_isblock") = "0" Then
-            isBlock = False
-        Else
-            isBlock = (Left$(rawLatex, 2) = "$$" Or Left$(rawLatex, 2) = "\[" Or (Left$(rawLatex, 6) = "\begin" And Left$(rawLatex, 2) <> "\("))
-        End If
-        ommlXml = ModOmmlEmit.TranspileLatexToOmml(cleanLatex, isBlock, isAmb, eqTag)
-        If isAmb Or Len(ommlXml) = 0 Then
-            If foundKind = ModMathScanner.BM_KIND_SRC Then
+    Else
+        idStr = Mid$(foundBm, InStrRev(foundBm, "_") + 1)
+        If foundKind = ModMathScanner.BM_KIND_OMATH Then
+            rawLatex = ModMathHelpers.GetDocVariable(doc, foundBm)
+            If Len(rawLatex) = 0 Then
+                ModMathHelpers.NotifyUser ModConstants.Uni("Original LaTeX source not found. (Kh\u00f4ng t\u00ecm th\u1ea5y m\u00e3 LaTeX g\u1ed1c.)")
+            Else
+                Set selRng = doc.Bookmarks(foundBm).Range
                 doc.Bookmarks(foundBm).Delete
-                ModMathHelpers.ApplyPastelShading selRng, ModMathScanner.COLOR_PASTEL_PINK
-                doc.Bookmarks.Add "bm_math_pink_" & idStr, selRng
-                ModMathHelpers.SetDocVariable doc, "bm_math_" & idStr, rawLatex
+                selRng.Delete
+                selRng.Text = rawLatex
+                ModMathHelpers.ApplyPastelShading selRng, ModMathScanner.COLOR_PASTEL_AMBER
+                doc.Bookmarks.Add "bm_math_src_" & idStr, selRng
             End If
-            ModMathHelpers.NotifyUser ModConstants.Uni("Unsupported LaTeX syntax (C\u00fa ph\u00e1p ch\u01b0a h\u1ed7 tr\u1ee3): ") & Left$(rawLatex, 40)
-            Exit Sub
+        ElseIf foundKind = ModMathScanner.BM_KIND_SRC Or foundKind = ModMathScanner.BM_KIND_PINK Then
+            Set selRng = doc.Bookmarks(foundBm).Range
+            rawLatex = selRng.Text
+            isBlock = ModMathHelpers.InferIsBlock(rawLatex, doc, idStr)
+            If IsNumeric(idStr) Then
+                seqNum = CLng(idStr)
+                ConvertWithSeq doc, selRng, rawLatex, isBlock, seqNum, foundBm, isPink
+                If isPink Then
+                    ModMathHelpers.NotifyUser ModConstants.Uni("Unsupported LaTeX syntax (C\u00fa ph\u00e1p ch\u01b0a h\u1ed7 tr\u1ee3): ") & Left$(rawLatex, 40)
+                End If
+            End If
         End If
-        doc.Bookmarks(foundBm).Delete
-        InsertOpcAndShade doc, selRng, ommlXml, isBlock, "bm_math_" & idStr
-        ModMathHelpers.SetDocVariable doc, "bm_math_" & idStr, rawLatex
-        If isBlock Then
-            ModMathHelpers.SetDocVariable doc, "bm_math_" & idStr & "_isblock", "1"
-        Else
-            ModMathHelpers.SetDocVariable doc, "bm_math_" & idStr & "_isblock", "0"
-        End If
-        Exit Sub
     End If
-
+CleanToggleExit:
+    EndUndoSafe objUndo, weStartedUndo
+    Exit Sub
 ErrHandler:
+    Resume CleanToggleExit
 End Sub
-
 Public Sub FinalizeAllMath(ByVal doc As Document, ByVal isSilent As Boolean)
     Dim bm As Bookmark
     Dim v As Variable
@@ -330,19 +343,12 @@ Public Sub FinalizeAllMath(ByVal doc As Document, ByVal isSilent As Boolean)
     Dim warnCount As Long
     Dim finMsg As String
     Dim weStartedUndo As Boolean
+    If g_IsMathBuilding Or doc Is Nothing Then
+        Exit Sub
+    End If
     On Error GoTo ErrHandler
-    weStartedUndo = False
-    warnCount = 0
     If Not isSilent Then
-        On Error Resume Next
-        Set objUndo = Application.UndoRecord
-        If Not objUndo Is Nothing Then
-            If Not objUndo.IsRecordingCustomRecord Then
-                objUndo.StartCustomRecord "Finalize Math Equations"
-                weStartedUndo = (Err.Number = 0)
-            End If
-        End If
-        On Error GoTo ErrHandler
+        weStartedUndo = StartUndoSafe("Finalize Math Equations", objUndo)
     End If
     For i = doc.Bookmarks.Count To 1 Step -1
         Set bm = doc.Bookmarks(i)
@@ -362,10 +368,7 @@ Public Sub FinalizeAllMath(ByVal doc As Document, ByVal isSilent As Boolean)
             End If
         Next i
     End If
-    If weStartedUndo Then
-        objUndo.EndCustomRecord
-        weStartedUndo = False
-    End If
+    EndUndoSafe objUndo, weStartedUndo
     If Not isSilent And Application.DisplayAlerts <> 0 Then
         finMsg = ModConstants.Uni("Math equations finalized. (\u0110\u00e3 ch\u1ed1t xong c\u00f4ng th\u1ee9c to\u00e1n h\u1ecdc.)")
         If warnCount > 0 Then
@@ -375,11 +378,8 @@ Public Sub FinalizeAllMath(ByVal doc As Document, ByVal isSilent As Boolean)
     End If
     Exit Sub
 ErrHandler:
-    If weStartedUndo Then
-        objUndo.EndCustomRecord
-    End If
+    EndUndoSafe objUndo, weStartedUndo
 End Sub
-
 Public Sub Ribbon_OnMathBuild(ByVal control As IRibbonControl)
     If Documents.Count > 0 Then
         BuildAllMathInDocument ActiveDocument

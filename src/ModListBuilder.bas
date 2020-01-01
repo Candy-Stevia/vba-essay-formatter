@@ -36,26 +36,39 @@ Private Function HasElementType(ByRef snapshots() As ParagraphSnapshot, ByVal to
     Next i
 End Function
 
+Private Function CleanListTitle(ByVal s As String) As String
+    s = Replace(Replace(Replace(s, vbCr, ""), Chr(7), ""), Chr(11), " ")
+    s = Replace(Replace(Replace(s, vbTab, " "), Chr(10), " "), Chr(12), " ")
+    s = Trim$(s)
+    Do While InStr(s, "  ") > 0
+        s = Replace(s, "  ", " ")
+    Loop
+    CleanListTitle = s
+End Function
+
+Private Sub EnsureParagraphAfter(ByVal doc As Document, ByVal pIdx As Long)
+    If pIdx = doc.Paragraphs.Count Then doc.Paragraphs(pIdx).Range.InsertAfter vbCr
+End Sub
+
 Public Function GetFreshTitleText(ByVal doc As Document, ByVal bmName As String, ByVal fallback As String) As String
     On Error Resume Next
+    Dim cleanFallback As String
+    cleanFallback = CleanListTitle(fallback)
     If bmName = BM_TOC_HEADER Or bmName = BM_LOT_HEADER Or bmName = BM_LOF_HEADER Then
-        GetFreshTitleText = fallback
+        GetFreshTitleText = cleanFallback
         Exit Function
     End If
     If Len(bmName) > 0 Then
         If doc.Bookmarks.Exists(bmName) Then
             Dim t As String
-            t = Trim$(Replace(Replace(Replace(doc.Bookmarks(bmName).Range.Text, vbCr, ""), Chr(7), ""), Chr(11), " "))
-            Do While InStr(t, "  ") > 0
-                t = Replace(t, "  ", " ")
-            Loop
+            t = CleanListTitle(doc.Bookmarks(bmName).Range.Text)
             If Len(t) > 0 Then
                 GetFreshTitleText = t
                 Exit Function
             End If
         End If
     End If
-    GetFreshTitleText = fallback
+    GetFreshTitleText = cleanFallback
 End Function
 
 Public Function InsertEntry(ByVal doc As Document, ByVal atRange As Range, ByVal titleText As String, _
@@ -112,8 +125,9 @@ Public Function BuildListOfFigures(ByVal doc As Document, ByRef markers As Marke
     End If
     
     Dim tabPos As Single
-    tabPos = CalculateRightTab(doc)
+    tabPos = CalculateRightTab(doc, doc.Paragraphs(pIdx).Range)
     InsertListHeader doc, pIdx, ModLocale.GetLofHeaderTitle(g_Config.ListLang), BM_LOF_HEADER, fontName, fontSize
+    EnsureParagraphAfter doc, pIdx + 1
     
     Dim startEntriesPos As Long
     startEntriesPos = doc.Paragraphs(pIdx + 1).Range.End
@@ -127,7 +141,7 @@ Public Function BuildListOfFigures(ByVal doc As Document, ByRef markers As Marke
             Set curRng = InsertEntry(doc, curRng, snapshots(i).CleanText, FormatBookmarkId(BM_PREFIX_FIG, figCount), fontName, fontSize, tabPos, 0#, True)
         End If
     Next i
-    If curRng.End > startEntriesPos Then AddBookmark doc, BM_ZONE_LOF, doc.Range(startEntriesPos, curRng.End)
+    If curRng.End - 1 > startEntriesPos Then AddBookmark doc, BM_ZONE_LOF, doc.Range(startEntriesPos, curRng.End - 1)
     If autoSync Then
         doc.Repaginate
         If Not SyncAllListPages(doc, pageMode) Then
@@ -171,8 +185,9 @@ Public Function BuildListOfTables(ByVal doc As Document, ByRef markers As Marker
     End If
     
     Dim tabPos As Single
-    tabPos = CalculateRightTab(doc)
+    tabPos = CalculateRightTab(doc, doc.Paragraphs(pIdx).Range)
     InsertListHeader doc, pIdx, ModLocale.GetLotHeaderTitle(g_Config.ListLang), BM_LOT_HEADER, fontName, fontSize
+    EnsureParagraphAfter doc, pIdx + 1
     
     Dim startEntriesPos As Long
     startEntriesPos = doc.Paragraphs(pIdx + 1).Range.End
@@ -186,7 +201,7 @@ Public Function BuildListOfTables(ByVal doc As Document, ByRef markers As Marker
             Set curRng = InsertEntry(doc, curRng, snapshots(i).CleanText, FormatBookmarkId(BM_PREFIX_TBL, tblCount), fontName, fontSize, tabPos, 0#, True)
         End If
     Next i
-    If curRng.End > startEntriesPos Then AddBookmark doc, BM_ZONE_LOT, doc.Range(startEntriesPos, curRng.End)
+    If curRng.End - 1 > startEntriesPos Then AddBookmark doc, BM_ZONE_LOT, doc.Range(startEntriesPos, curRng.End - 1)
     If autoSync Then
         doc.Repaginate
         If Not SyncAllListPages(doc, pageMode) Then
@@ -267,8 +282,9 @@ Public Function BuildTableOfContents(ByVal doc As Document, ByRef markers As Mar
     End If
     
     Dim tabPos As Single
-    tabPos = CalculateRightTab(doc)
+    tabPos = CalculateRightTab(doc, doc.Paragraphs(pIdx).Range)
     InsertListHeader doc, pIdx, ModLocale.GetTocHeaderTitle(g_Config.ListLang), BM_TOC_HEADER, fontName, fontSize
+    EnsureParagraphAfter doc, pIdx + 1
     
     Dim hdrs(1 To 4) As String, bms(1 To 4) As String, hPos(1 To 4) As Long, hCount As Long
     CollectSortedHeaderTargets doc, hdrs, bms, hPos, hCount
@@ -290,11 +306,15 @@ Public Function BuildTableOfContents(ByVal doc As Document, ByRef markers As Mar
             If doc.Bookmarks.Exists(bmName) Then
                 itemPos = doc.Bookmarks(bmName).Range.Start
                 Do While hIdx <= hCount
-                    If hPos(hIdx) < itemPos Then
-                        Set curRng = InsertEntry(doc, curRng, hdrs(hIdx), bms(hIdx), fontName, fontSize, tabPos, 0#, True)
-                        hIdx = hIdx + 1
+                    If doc.Bookmarks.Exists(bms(hIdx)) Then
+                        If doc.Bookmarks(bms(hIdx)).Range.Start < itemPos Then
+                            Set curRng = InsertEntry(doc, curRng, hdrs(hIdx), bms(hIdx), fontName, fontSize, tabPos, 0#, True)
+                            hIdx = hIdx + 1
+                        Else
+                            Exit Do
+                        End If
                     Else
-                        Exit Do
+                        hIdx = hIdx + 1
                     End If
                 Loop
             End If
@@ -317,7 +337,7 @@ Public Function BuildTableOfContents(ByVal doc As Document, ByRef markers As Mar
         hIdx = hIdx + 1
     Loop
     
-    If curRng.End > startEntriesPos Then AddBookmark doc, BM_ZONE_TOC, doc.Range(startEntriesPos, curRng.End)
+    If curRng.End - 1 > startEntriesPos Then AddBookmark doc, BM_ZONE_TOC, doc.Range(startEntriesPos, curRng.End - 1)
     Dim pM As Long
     pM = ModMarkerLexer.FindMarkerParagraph(doc, "=listfigurehere()")
     If pM > 1 And doc.Bookmarks.Exists(BM_LOF_HEADER) Then
@@ -331,7 +351,11 @@ Public Function BuildTableOfContents(ByVal doc As Document, ByRef markers As Mar
     If pM > 1 And doc.Bookmarks.Exists(BM_TOC_HEADER) Then
         AddBookmark doc, BM_TOC_HEADER, doc.Paragraphs(pM - 1).Range
     End If
-    If doc.Bookmarks.Exists(BM_TOC_HEADER) Then AddBookmark doc, BM_SYS_GENERATED_BLOCK, doc.Range(doc.Bookmarks(BM_TOC_HEADER).Range.Start, curRng.End)
+    If doc.Bookmarks.Exists(BM_TOC_HEADER) Then
+        If curRng.End - 1 > doc.Bookmarks(BM_TOC_HEADER).Range.Start Then
+            AddBookmark doc, BM_SYS_GENERATED_BLOCK, doc.Range(doc.Bookmarks(BM_TOC_HEADER).Range.Start, curRng.End - 1)
+        End If
+    End If
     If autoSync Then
         doc.Repaginate
         If Not SyncAllListPages(doc, pageMode) Then

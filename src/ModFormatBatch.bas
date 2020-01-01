@@ -52,14 +52,7 @@ Public Sub FormatNormalBatch(ByVal doc As Document, ByVal rStart As Long, _
     Dim rng As Range
     Set rng = doc.Range(rStart, rEnd)
     
-    If rng.HighlightColorIndex = 9999999 Then
-        Dim pSub As Paragraph
-        For Each pSub In rng.Paragraphs
-            ModFormatCore.ClearYellowAndRedBleed pSub.Range
-        Next pSub
-    Else
-        ModFormatCore.ClearYellowAndRedBleed rng
-    End If
+    ModFormatCore.ClearYellowAndRedBleed rng
     
     rng.Font.Name = fontName
     rng.Font.Size = fontSize

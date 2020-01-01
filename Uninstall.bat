@@ -7,7 +7,9 @@ echo  ACADEMIC FORMATTER MACRO - AUTO UNINSTALLER (GO CAI DAT TU DONG)
 echo ============================================================================
 echo.
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$c = (Get-Content -LiteralPath '%~f0' -Raw) -split ('#__' + 'PS_START__'), 2; Invoke-Expression $c[1]"
+set "SELF_BAT=%~f0"
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$c = (Get-Content -LiteralPath $env:SELF_BAT -Raw) -split ('#__' + 'PS_START__'), 2; Invoke-Expression $c[1]"
 set "EC=%errorlevel%"
 echo.
 if not "%EC%"=="0" (
@@ -19,27 +21,40 @@ exit /b %EC%
 #__PS_START__
 $ErrorActionPreference = 'Stop'
 
-$dirs = New-Object System.Collections.Generic.List[string]
+$dirs = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
 foreach ($v in @('16.0','15.0','14.0','12.0')) {
     $optKey = "HKCU:\Software\Microsoft\Office\$v\Word\Options"
-    if (Test-Path $optKey) {
-        $custom = (Get-ItemProperty $optKey -Name 'STARTUP-PATH' -ErrorAction SilentlyContinue).'STARTUP-PATH'
+    if (Test-Path -LiteralPath $optKey) {
+        $custom = (Get-ItemProperty -LiteralPath $optKey -Name 'STARTUP-PATH' -ErrorAction SilentlyContinue).'STARTUP-PATH'
         if ($custom -and $custom.Trim().Length -gt 0) {
             $expanded = [Environment]::ExpandEnvironmentVariables($custom.Trim())
-            if (-not $dirs.Contains($expanded)) { $dirs.Add($expanded) }
+            try {
+                $normDir = [System.IO.Path]::GetFullPath($expanded).TrimEnd('\')
+                [void]$dirs.Add($normDir)
+            } catch {}
         }
     }
 }
 
 $defaultStartup = Join-Path $env:APPDATA 'Microsoft\Word\STARTUP'
-if (-not $dirs.Contains($defaultStartup)) { $dirs.Add($defaultStartup) }
+try {
+    $normDefault = [System.IO.Path]::GetFullPath($defaultStartup).TrimEnd('\')
+    [void]$dirs.Add($normDefault)
+} catch {
+    [void]$dirs.Add($defaultStartup.TrimEnd('\'))
+}
 
-$targets = New-Object System.Collections.Generic.List[string]
+$targets = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
 foreach ($d in $dirs) {
     foreach ($name in @('AcademicFormatter.dotm', 'AcademicFormatter.dotm.bak')) {
         $p = Join-Path $d $name
         if (Test-Path -LiteralPath $p) {
-            $targets.Add($p)
+            try {
+                $normTarget = [System.IO.Path]::GetFullPath($p).TrimEnd('\')
+                [void]$targets.Add($normTarget)
+            } catch {
+                [void]$targets.Add($p)
+            }
         }
     }
 }
@@ -81,13 +96,13 @@ if ($wordRunning) {
     foreach ($ov in @('16.0', '15.0', '14.0', '12.0')) {
         foreach ($sub in @('DisabledItems', 'StartupItems')) {
             $rk = "HKCU:\Software\Microsoft\Office\$ov\Word\Resiliency\$sub"
-            if (Test-Path $rk) {
-                $props = Get-ItemProperty $rk -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $rk) {
+                $props = Get-ItemProperty -LiteralPath $rk -ErrorAction SilentlyContinue
                 foreach ($pr in $props.PSObject.Properties) {
                     if ($pr.Name -notlike 'PS*') {
                         try {
                             $txt = [System.Text.Encoding]::Unicode.GetString([byte[]]$pr.Value) -replace "`0", ''
-                            if ($txt -match 'AcademicFormatter\.dotm') { Remove-ItemProperty -Path $rk -Name $pr.Name -ErrorAction SilentlyContinue }
+                            if ($txt -match 'AcademicFormatter\.dotm') { Remove-ItemProperty -LiteralPath $rk -Name $pr.Name -ErrorAction SilentlyContinue }
                         } catch {}
                     }
                 }

@@ -14,12 +14,14 @@ Option Explicit
         ByVal lpText As LongPtr, _
         ByVal lpCaption As LongPtr, _
         ByVal uType As Long) As Long
+    Private Declare PtrSafe Function GetActiveWindow Lib "user32" () As LongPtr
 #Else
     Private Declare Function MessageBoxW Lib "user32" ( _
         ByVal hwnd As Long, _
         ByVal lpText As Long, _
         ByVal lpCaption As Long, _
         ByVal uType As Long) As Long
+    Private Declare Function GetActiveWindow Lib "user32" () As Long
 #End If
 
 ' --- Unicode Native Message Box ---
@@ -29,21 +31,36 @@ Public Function MsgBoxW(ByVal prompt As String, _
                         Optional ByVal title As String = "") As Long
     On Error Resume Next
     If Application.DisplayAlerts = 0 Then
-        If (buttons And vbYesNo) = vbYesNo Then
-            MsgBoxW = 6 ' vbYes
-        ElseIf (buttons And vbYesNoCancel) = vbYesNoCancel Then
-            MsgBoxW = 6 ' vbYes
-        Else
-            MsgBoxW = 1 ' vbOK
-        End If
+        Select Case (buttons And &HF&)
+            Case vbYesNo, vbYesNoCancel
+                MsgBoxW = 6 ' vbYes
+            Case vbRetryCancel, 6
+                MsgBoxW = 2 ' vbCancel
+            Case Else
+                MsgBoxW = 1 ' vbOK
+        End Select
         Exit Function
     End If
-    MsgBoxW = MessageBoxW(0, StrPtr(prompt), StrPtr(title), buttons)
+    #If VBA7 Then
+        Dim ownerHwnd As LongPtr
+    #Else
+        Dim ownerHwnd As Long
+    #End If
+    ownerHwnd = GetActiveWindow()
+    MsgBoxW = MessageBoxW(ownerHwnd, StrPtr(prompt), StrPtr(title), buttons)
 End Function
 
 ' --- Ribbon OnAction Legacy / Fallback Callback ---
 
 Public Sub Ribbon_RunEngine(Optional ByVal control As Object = Nothing)
+    If ModMain.g_IsEngineRunning Or ModMathController.g_IsMathBuilding Then
+        Exit Sub
+    End If
+    If Application.Documents.Count = 0 Then
+        MsgBoxW ModConstants.Uni("No open Word document found. (Kh\u00f4ng t\u00ecm th\u1ea5y t\u00e0i li\u1ec7u Word \u0111ang m\u1edf.)"), _
+                vbExclamation, ModConstants.Uni("Error (L\u1ed7i)")
+        Exit Sub
+    End If
     ModRibbonCallbacks.EnsureConfigInitialized
     ModMain.RunEngine ActiveDocument, EngineModeFull
 End Sub

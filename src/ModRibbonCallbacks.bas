@@ -58,6 +58,9 @@ Public Sub Ribbon_GetSelectedFont(ByVal control As Object, ByRef itemID As Varia
 End Sub
 
 Public Sub Ribbon_OnFontChange(ByVal control As Object, ByVal id As String, ByVal index As Long)
+    If ModMain.g_IsEngineRunning Or ModMathController.g_IsMathBuilding Then
+        Exit Sub
+    End If
     EnsureConfigInitialized
     Select Case id
         Case "font_arial"
@@ -82,6 +85,9 @@ Public Sub Ribbon_GetSelectedSize(ByVal control As Object, ByRef itemID As Varia
 End Sub
 
 Public Sub Ribbon_OnSizeChange(ByVal control As Object, ByVal id As String, ByVal index As Long)
+    If ModMain.g_IsEngineRunning Or ModMathController.g_IsMathBuilding Then
+        Exit Sub
+    End If
     EnsureConfigInitialized
     Select Case id
         Case "size_12"
@@ -99,11 +105,17 @@ Public Sub Ribbon_GetSelectedLineSpacing(ByVal control As Object, ByRef itemID A
 End Sub
 
 Public Sub Ribbon_OnLineSpacingChange(ByVal control As Object, ByVal id As String, ByVal index As Long)
+    If ModMain.g_IsEngineRunning Or ModMathController.g_IsMathBuilding Then
+        Exit Sub
+    End If
     EnsureConfigInitialized
     g_Config.LineSpacingMode = id
 End Sub
 
 Public Sub SetLineSpacing(ByVal mode As String)
+    If ModMain.g_IsEngineRunning Or ModMathController.g_IsMathBuilding Then
+        Exit Sub
+    End If
     EnsureConfigInitialized
     g_Config.LineSpacingMode = mode
 End Sub
@@ -120,6 +132,9 @@ Public Sub Ribbon_GetSelectedIndent(ByVal control As Object, ByRef itemID As Var
 End Sub
 
 Public Sub Ribbon_OnIndentChange(ByVal control As Object, ByVal id As String, ByVal index As Long)
+    If ModMain.g_IsEngineRunning Or ModMathController.g_IsMathBuilding Then
+        Exit Sub
+    End If
     EnsureConfigInitialized
     Select Case id
         Case "ind_100"
@@ -137,6 +152,9 @@ Public Sub Ribbon_GetBoldTOC(ByVal control As Object, ByRef returnedVal As Varia
 End Sub
 
 Public Sub Ribbon_OnBoldTOCToggle(ByVal control As Object, ByVal pressed As Boolean)
+    If ModMain.g_IsEngineRunning Or ModMathController.g_IsMathBuilding Then
+        Exit Sub
+    End If
     EnsureConfigInitialized
     g_Config.IsBoldTOC = pressed
 End Sub
@@ -147,6 +165,9 @@ Public Sub Ribbon_GetFooterPage(ByVal control As Object, ByRef returnedVal As Va
 End Sub
 
 Public Sub Ribbon_OnFooterPageToggle(ByVal control As Object, ByVal pressed As Boolean)
+    If ModMain.g_IsEngineRunning Or ModMathController.g_IsMathBuilding Then
+        Exit Sub
+    End If
     EnsureConfigInitialized
     g_Config.IsFooterPage = pressed
 End Sub
@@ -157,6 +178,9 @@ Public Sub Ribbon_GetTocDepth(ByVal control As Object, ByRef itemID As Variant)
 End Sub
 
 Public Sub Ribbon_OnTocDepthChange(ByVal control As Object, ByVal id As String, ByVal index As Long)
+    If ModMain.g_IsEngineRunning Or ModMathController.g_IsMathBuilding Then
+        Exit Sub
+    End If
     EnsureConfigInitialized
     If id = "depth_3" Then g_Config.TocDepth = 3 Else g_Config.TocDepth = 4
 End Sub
@@ -167,6 +191,9 @@ Public Sub Ribbon_GetSelectedLang(ByVal control As Object, ByRef itemID As Varia
 End Sub
 
 Public Sub SetListLanguage(ByVal lang As String)
+    If ModMain.g_IsEngineRunning Or ModMathController.g_IsMathBuilding Then
+        Exit Sub
+    End If
     EnsureConfigInitialized
     If lang = "lang_en" Then g_Config.ListLang = "lang_en" Else g_Config.ListLang = "lang_vi"
 End Sub
@@ -187,26 +214,55 @@ Public Sub Ribbon_GetCrossRefColor(ByVal control As Object, ByRef itemID As Vari
 End Sub
 
 Public Sub Ribbon_OnCrossRefColorChange(ByVal control As Object, ByVal id As String, ByVal index As Long)
+    If ModMain.g_IsEngineRunning Or ModMathController.g_IsMathBuilding Then
+        Exit Sub
+    End If
     EnsureConfigInitialized
     g_Config.CrossRefColor = id
 End Sub
 
 Public Sub SetCrossRefColor(ByVal colorId As String)
+    If ModMain.g_IsEngineRunning Or ModMathController.g_IsMathBuilding Then
+        Exit Sub
+    End If
     EnsureConfigInitialized
     g_Config.CrossRefColor = colorId
 End Sub
 
+Private Function CanRunDocumentAction() As Boolean
+    If ModMain.g_IsEngineRunning Or ModMathController.g_IsMathBuilding Then
+        CanRunDocumentAction = False
+        Exit Function
+    End If
+    If Application.Documents.Count = 0 Then
+        ModUI.MsgBoxW ModConstants.Uni("No open Word document found. (Kh\u00f4ng t\u00ecm th\u1ea5y t\u00e0i li\u1ec7u Word \u0111ang m\u1edf.)"), _
+                      vbExclamation, ModConstants.Uni("Error (L\u1ed7i)")
+        CanRunDocumentAction = False
+        Exit Function
+    End If
+    CanRunDocumentAction = True
+End Function
+
 Public Sub RunEngineFull()
+    If Not CanRunDocumentAction() Then
+        Exit Sub
+    End If
     EnsureConfigInitialized
     ModMain.RunEngine ActiveDocument, EngineModeFull
 End Sub
 
 Public Sub RunEngineListsOnly()
+    If Not CanRunDocumentAction() Then
+        Exit Sub
+    End If
     EnsureConfigInitialized
     ModMain.RunEngine ActiveDocument, EngineModeListsOnly
 End Sub
 
 Public Sub RunCleanMarkers()
+    If Not CanRunDocumentAction() Then
+        Exit Sub
+    End If
     ModZoneManager.CleanMarkersForSubmission ActiveDocument
 End Sub
 
@@ -223,6 +279,12 @@ Public Sub Ribbon_OnCleanMarkers(Optional ByVal control As Object = Nothing)
 End Sub
 
 Public Sub Ribbon_OnInsertMarker(ByVal control As Object)
+    If control Is Nothing Then
+        Exit Sub
+    End If
+    If Not CanRunDocumentAction() Then
+        Exit Sub
+    End If
     Select Case control.Id
         Case "btnInsContentStart"
             ModMarkerInserter.InsertMarkerAtSelection ActiveDocument, MARKER_CONTENT_START

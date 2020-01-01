@@ -76,11 +76,16 @@ Public Function IsRomanLevel1(ByVal s As String) As Boolean
     Dim t As String
     t = Trim$(s)
     If Len(t) < 4 Then Exit Function
-    Dim regEx As Object
-    Set regEx = CreateObject("VBScript.RegExp")
-    regEx.IgnoreCase = False
-    regEx.Global = False
-    regEx.Pattern = "^(X{1,3}(?:IX|IV|V?I{0,3})|IX|IV|V?I{1,3}|V)[\.:]\s+\S.*$"
+    Dim ch1 As String
+    ch1 = Left$(t, 1)
+    If ch1 <> "I" And ch1 <> "V" And ch1 <> "X" Then Exit Function
+    Static regEx As Object
+    If regEx Is Nothing Then
+        Set regEx = CreateObject("VBScript.RegExp")
+        regEx.IgnoreCase = False
+        regEx.Global = False
+        regEx.Pattern = "^(X{1,3}(?:IX|IV|V?I{0,3})|IX|IV|V?I{1,3}|V)[\.:]\s+\S.*$"
+    End If
     IsRomanLevel1 = regEx.Test(t)
 End Function
 
@@ -113,14 +118,14 @@ Public Function GetPatternFigure() As String
 End Function
 
 Public Function GetPatternSourceNote() As String
-    GetPatternSourceNote = "^(Source|" & GetViNguon() & "|Note|" & GetViGhiChu() & "):\s*(.*)$"
+    GetPatternSourceNote = "^(Source|" & GetViNguon() & "|Note|" & GetViGhiChu() & ")\s*:\s*(.*)$"
 End Function
 
 Public Function GetPrefixCapPattern() As String
     Dim tblFig As String, srcNote As String
     tblFig = "(?:Table|" & ModConstants.Uni("B(?:\u1ea3|a)ng") & "|" & GetFigureKeywords() & ")\s+" & NumToken() & CaptionSep()
-    srcNote = "(?:Source|" & GetViNguon() & "|Note|" & GetViGhiChu() & "):\s*"
-    GetPrefixCapPattern = "^(?:" & tblFig & "|" & srcNote & "|(?:\d+\.)+\s*)"
+    srcNote = "(?:Source|" & GetViNguon() & "|Note|" & GetViGhiChu() & ")\s*:\s*"
+    GetPrefixCapPattern = "^\s*(?:" & tblFig & "|" & srcNote & "|(?:\d+\.)+\s*)"
 End Function
 
 Public Function IsPrefixOnlyHeading(ByVal s As String) As Boolean
@@ -128,23 +133,41 @@ Public Function IsPrefixOnlyHeading(ByVal s As String) As Boolean
     t = Trim$(s)
     If Len(t) = 0 Then Exit Function
     
-    Dim enPat As String, viPat As String
-    enPat = "(Chapter\s+[A-Za-z0-9]+[:\.]|Appendix(\s+[A-Za-z0-9]+)?[:\.]|" & _
-            "\d+(\.\d+)*\.|" & _
-            "Table\s+[A-Za-z0-9]+(?:[\.\-_][A-Za-z0-9]+)*\.|" & _
-            "(Figure|Fig\.?|Chart|Diagram)\s+[A-Za-z0-9]+(?:[\.\-_][A-Za-z0-9]+)*[:\.]|" & _
-            "Source:|Note:)"
-            
-    viPat = ModConstants.Uni("(Ch\u01b0\u01a1ng\s+[A-Za-z0-9]+[:\.]|Ph\u1ee5 l\u1ee5c(\s+[A-Za-z0-9]+)?[:\.]|" & _
-            "B(?:\u1ea3|a)ng\s+[A-Za-z0-9]+(?:[\.\-_][A-Za-z0-9]+)*\.|" & _
-            "(H(?:\u00ec|i)nh(?:\s+(?:\u1ea3nh|v\u1ebd))?|S\u01a1 \u0111\u1ed3|Bi\u1ec3u \u0111\u1ed3|\u0110\u1ed3 th\u1ecb)\s+[A-Za-z0-9]+(?:[\.\-_][A-Za-z0-9]+)*[:\.]|" & _
-            "Ngu\u1ed1n:|Ghi ch\u00fa:)")
-            
-    Dim regEx As Object
-    Set regEx = CreateObject("VBScript.RegExp")
-    regEx.IgnoreCase = True
-    regEx.Global = False
-    regEx.Pattern = "^(" & enPat & "|" & viPat & ")$"
+    Dim ch1 As String
+    ch1 = Left$(t, 1)
+    If ch1 = "I" Or ch1 = "V" Or ch1 = "X" Then
+        Static regRoman As Object
+        If regRoman Is Nothing Then
+            Set regRoman = CreateObject("VBScript.RegExp")
+            regRoman.IgnoreCase = False
+            regRoman.Global = False
+            regRoman.Pattern = "^(X{1,3}(?:IX|IV|V?I{0,3})|IX|IV|V?I{1,3}|V)(?:\s*:|\.)$"
+        End If
+        If regRoman.Test(t) Then
+            IsPrefixOnlyHeading = True
+            Exit Function
+        End If
+    End If
+    
+    Static regEx As Object
+    If regEx Is Nothing Then
+        Dim enPat As String, viPat As String
+        enPat = "(Chapter\s+[A-Za-z0-9]+(?:\s*:|\.)|Appendix(\s+[A-Za-z0-9]+)?(?:\s*:|\.)|" & _
+                "\d+(\.\d+)*\.|" & _
+                "Table\s+[A-Za-z0-9]+(?:[\.\-_][A-Za-z0-9]+)*(?:\s*:|\.)|" & _
+                "(Figure|Fig\.?|Chart|Diagram)\s+[A-Za-z0-9]+(?:[\.\-_][A-Za-z0-9]+)*(?:\s*:|\.)|" & _
+                "Source\s*:|Note\s*:)"
+                
+        viPat = ModConstants.Uni("(Ch\u01b0\u01a1ng\s+[A-Za-z0-9]+(?:\s*:|\.)|Ph\u1ea7n\s+[A-Za-z0-9]+(?:\s*:|\.)|Ph\u1ee5 l\u1ee5c(\s+[A-Za-z0-9]+)?(?:\s*:|\.)|" & _
+                "B(?:\u1ea3|a)ng\s+[A-Za-z0-9]+(?:[\.\-_][A-Za-z0-9]+)*(?:\s*:|\.)|" & _
+                "(H(?:\u00ec|i)nh(?:\s+(?:\u1ea3nh|v\u1ebd))?|S\u01a1 \u0111\u1ed3|Bi\u1ec3u \u0111\u1ed3|\u0110\u1ed3 th\u1ecb)\s+[A-Za-z0-9]+(?:[\.\-_][A-Za-z0-9]+)*(?:\s*:|\.)|" & _
+                "Ngu\u1ed3n\s*:|Ghi ch\u00fa\s*:)")
+                
+        Set regEx = CreateObject("VBScript.RegExp")
+        regEx.IgnoreCase = True
+        regEx.Global = False
+        regEx.Pattern = "^(" & enPat & "|" & viPat & ")$"
+    End If
     IsPrefixOnlyHeading = regEx.Test(t)
 End Function
 ' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

@@ -17,14 +17,28 @@ End Type
 
 Public Sub ClearYellowAndRedBleed(ByVal rng As Range)
     On Error Resume Next
-    Dim h As Long
+    Dim h As Long, subP As Paragraph, ph As Long
+    Dim docRef As Document, chRng As Range, pos As Long
     h = rng.HighlightColorIndex
     If h = 7 Or h = 6 Then
         rng.HighlightColorIndex = 0
+    ElseIf h = 9999999 Then
+        Set docRef = rng.Document
+        For Each subP In rng.Paragraphs
+            ph = subP.Range.HighlightColorIndex
+            If ph = 7 Or ph = 6 Then
+                subP.Range.HighlightColorIndex = 0
+            ElseIf ph = 9999999 Then
+                For pos = subP.Range.Start To subP.Range.End - 1
+                    Set chRng = docRef.Range(pos, pos + 1)
+                    If chRng.HighlightColorIndex = 7 Or chRng.HighlightColorIndex = 6 Then
+                        chRng.HighlightColorIndex = 0
+                    End If
+                Next pos
+            End If
+        Next subP
     End If
-    If Err.Number <> 0 Then
-        Err.Clear
-    End If
+    If Err.Number <> 0 Then Err.Clear
 End Sub
 
 Public Sub ApplyLineSpacing(ByVal rng As Range, ByVal lsMode As String)
@@ -62,13 +76,15 @@ Public Function ExecuteRecord1(ByVal doc As Document, ByRef snapshots() As Parag
     hasOMaths = (doc.OMaths.Count > 0)
     On Error GoTo ErrorHandler
     
-    Dim bmNames() As String
-    ReDim bmNames(1 To totalCount)
-    Dim i As Long, tType As Long
     outStats.CountLevel1 = 0
     outStats.CountSubLevels = 0
     outStats.CountTables = 0
     outStats.CountFigures = 0
+    If totalCount <= 0 Then GoTo CleanExit
+    
+    Dim bmNames() As String
+    ReDim bmNames(1 To totalCount)
+    Dim i As Long, tType As Long
     
     For i = 1 To totalCount
         tType = snapshots(i).ElementType
@@ -141,8 +157,11 @@ Public Function ExecuteRecord1(ByVal doc As Document, ByRef snapshots() As Parag
             
             If snapshots(i).HasSoftBreak And (tType >= ElementTypeLevel1 And tType <= ElementTypeSourceNote) Then
                 If Not ModLocale.IsPrefixOnlyHeading(snapshots(i).FirstLineText) Then
-                    rng.Find.Execute FindText:=Chr(11), ReplaceWith:=vbCr, Replace:=1
+                    rng.Find.ClearFormatting
+                    rng.Find.Replacement.ClearFormatting
+                    rng.Find.Execute FindText:=Chr(11), ReplaceWith:=vbCr, Replace:=1, MatchWildcards:=False, Format:=False, Wrap:=0
                     Set rng = rng.Paragraphs(1).Range
+                    snapshots(i).CleanText = snapshots(i).FirstLineText
                 End If
             End If
             
@@ -172,7 +191,7 @@ CleanExit:
     Exit Function
     
 ErrorHandler:
-    Application.StatusBar = False
+    Application.StatusBar = ""
     ModRibbonCallbacks.g_LastError = "FormatCore Error " & Err.Number & ": " & Err.Description
     If weStartedUndo Then
         If Not objUndo Is Nothing Then

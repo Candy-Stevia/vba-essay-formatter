@@ -10,6 +10,49 @@ Option Explicit
 
 Public Const LATEX_MAX_SPAN As Long = 40
 
+Private Function CountUnescapedDoubleDollar(ByVal s As String) As Long
+    Dim pos As Long, cnt As Long, sLen As Long
+    Dim slashPos As Long, slashCnt As Long
+    sLen = Len(s)
+    pos = 1
+    cnt = 0
+    Do While pos <= sLen - 1
+        If Mid$(s, pos, 2) = "$$" Then
+            slashCnt = 0
+            slashPos = pos - 1
+            Do While slashPos >= 1
+                If Mid$(s, slashPos, 1) = "\" Then
+                    slashCnt = slashCnt + 1
+                    slashPos = slashPos - 1
+                Else
+                    Exit Do
+                End If
+            Loop
+            If (slashCnt Mod 2) = 0 Then
+                cnt = cnt + 1
+                pos = pos + 2
+            Else
+                pos = pos + 1
+            End If
+        Else
+            pos = pos + 1
+        End If
+    Loop
+    CountUnescapedDoubleDollar = cnt
+End Function
+
+Private Function CountSubstringOccurrences(ByVal s As String, ByVal needle As String) As Long
+    Dim pos As Long, cnt As Long, nLen As Long
+    nLen = Len(needle)
+    If nLen = 0 Then Exit Function
+    pos = InStr(1, s, needle, vbBinaryCompare)
+    Do While pos > 0
+        cnt = cnt + 1
+        pos = InStr(pos + nLen, s, needle, vbBinaryCompare)
+    Loop
+    CountSubstringOccurrences = cnt
+End Function
+
 Public Sub ComputeLatexFlags(ByVal doc As Document, _
                              ByRef outIsLatex() As Boolean, _
                              ByRef outLatexWarningCount As Long)
@@ -34,10 +77,13 @@ Public Sub ComputeLatexFlags(ByVal doc As Document, _
         pText = pTexts(i)
         
         Dim openType As Long ' 1: $$, 2: \[, 3: \begin{env}
-        Dim closeTarget As String
-        Dim braceClose As Long
+        Dim openTarget As String, closeTarget As String
+        Dim braceClose As Long, envName As String
+        Dim depth As Long
         openType = 0
+        openTarget = ""
         closeTarget = ""
+        depth = 0
         
         If Left$(pText, 2) = "$$" Then
             openType = 1
@@ -49,7 +95,9 @@ Public Sub ComputeLatexFlags(ByVal doc As Document, _
             braceClose = InStr(8, pText, "}")
             If braceClose > 8 Then
                 openType = 3
-                closeTarget = "\end{" & Mid$(pText, 8, braceClose - 8) & "}"
+                envName = Mid$(pText, 8, braceClose - 8)
+                openTarget = "\begin{" & envName & "}"
+                closeTarget = "\end{" & envName & "}"
             End If
         End If
         
@@ -58,11 +106,17 @@ Public Sub ComputeLatexFlags(ByVal doc As Document, _
             isSingleLine = False
             Select Case openType
                 Case 1 ' $$
-                    If Len(pText) >= 4 And Right$(pText, 2) = "$$" Then isSingleLine = True
+                    Dim ddCount As Long
+                    ddCount = CountUnescapedDoubleDollar(pText)
+                    If ddCount >= 2 And (ddCount Mod 2) = 0 Then isSingleLine = True
                 Case 2 ' \[
-                    If Len(pText) >= 4 And Right$(pText, 2) = "\]" Then isSingleLine = True
+                    Dim lastClose As Long, lastOpen As Long
+                    lastClose = InStrRev(pText, "\]")
+                    lastOpen = InStrRev(pText, "\[")
+                    If lastClose >= 3 And lastOpen < lastClose Then isSingleLine = True
                 Case 3 ' \begin{env}
-                    If InStr(braceClose + 1, pText, closeTarget) > 0 Then isSingleLine = True
+                    depth = CountSubstringOccurrences(pText, openTarget) - CountSubstringOccurrences(pText, closeTarget)
+                    If depth <= 0 Then isSingleLine = True
             End Select
             
             If isSingleLine Then
@@ -79,17 +133,18 @@ Public Sub ComputeLatexFlags(ByVal doc As Document, _
                     scanText = pTexts(j)
                     Select Case openType
                         Case 1 ' $$
-                            If InStr(scanText, "$$") > 0 Then
+                            If CountUnescapedDoubleDollar(scanText) > 0 Then
                                 foundEnd = j
                                 Exit For
                             End If
                         Case 2 ' \[
-                            If InStr(scanText, "\]") > 0 Then
+                            If InStr(1, scanText, "\]", vbBinaryCompare) > 0 Then
                                 foundEnd = j
                                 Exit For
                             End If
                         Case 3 ' \begin{env}
-                            If InStr(scanText, closeTarget) > 0 Then
+                            depth = depth + CountSubstringOccurrences(scanText, openTarget) - CountSubstringOccurrences(scanText, closeTarget)
+                            If depth <= 0 Then
                                 foundEnd = j
                                 Exit For
                             End If

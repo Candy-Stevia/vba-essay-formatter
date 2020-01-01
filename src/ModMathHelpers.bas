@@ -2,51 +2,36 @@ Attribute VB_Name = "ModMathHelpers"
 Option Explicit
 ' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
-' ==============================================================================
-' Module: ModMathHelpers
-' Purpose: Math ID cache, Variables, Shading, Bookmark lookup & DOM fallback
-' Architecture: 100% 7-bit ASCII, 1 statement per line (vba_lint compliant)
-' ==============================================================================
-
+' ModMathHelpers: Math ID cache, Variables, Shading, Bookmark lookup & DOM fallback
 Private g_MathSeqCached As Long
 Private g_HasSeqCache As Boolean
+Private g_SeqDocPtr As LongPtr
+
+Private Sub UpdateMaxSeq(ByVal itemName As String, ByRef curSeq As Long)
+    Dim suffix As String, bmNum As Long
+    If Left$(itemName, 8) = "bm_math_" Then
+        suffix = Mid$(itemName, InStrRev(itemName, "_") + 1)
+        If Len(suffix) > 0 And Len(suffix) <= 9 And IsNumeric(suffix) Then
+            bmNum = CLng(suffix)
+            If bmNum > curSeq Then curSeq = bmNum
+        End If
+    End If
+End Sub
 
 Public Sub InitMathSeqCache(ByVal doc As Document)
-    Dim curSeq As Long
-    Dim bmNum As Long
-    Dim bm As Bookmark
-    Dim v As Variable
-    Dim vStr As String
-    Dim suffix As String
-
-    curSeq = 0
+    Dim curSeq As Long, bm As Bookmark, v As Variable, vStr As String
+    ResetMathSeqCache
+    If doc Is Nothing Then Exit Sub
+    g_SeqDocPtr = ObjPtr(doc)
     On Error Resume Next
     vStr = doc.Variables("mathcfg_seq").Value
-    If Err.Number = 0 And Len(vStr) > 0 Then
-        curSeq = CLng(vStr)
-    End If
+    If Err.Number = 0 And Len(vStr) > 0 And Len(vStr) <= 9 Then curSeq = CLng(vStr)
     Err.Clear
     For Each bm In doc.Bookmarks
-        If Left$(bm.Name, 8) = "bm_math_" Then
-            suffix = Mid$(bm.Name, InStrRev(bm.Name, "_") + 1)
-            If IsNumeric(suffix) Then
-                bmNum = CLng(suffix)
-                If bmNum > curSeq Then
-                    curSeq = bmNum
-                End If
-            End If
-        End If
+        UpdateMaxSeq bm.Name, curSeq
     Next bm
     For Each v In doc.Variables
-        If Left$(v.Name, 8) = "bm_math_" Then
-            suffix = Mid$(v.Name, InStrRev(v.Name, "_") + 1)
-            If IsNumeric(suffix) Then
-                bmNum = CLng(suffix)
-                If bmNum > curSeq Then
-                    curSeq = bmNum
-                End If
-            End If
-        End If
+        UpdateMaxSeq v.Name, curSeq
     Next v
     On Error GoTo 0
     g_MathSeqCached = curSeq
@@ -56,16 +41,20 @@ End Sub
 Public Sub ResetMathSeqCache()
     g_MathSeqCached = 0
     g_HasSeqCache = False
+    g_SeqDocPtr = 0
 End Sub
 Public Sub FlushMathSeqCache(ByVal doc As Document)
-    If g_HasSeqCache And g_MathSeqCached > 0 Then
-        SetDocVariable doc, "mathcfg_seq", CStr(g_MathSeqCached)
+    If Not doc Is Nothing Then
+        If g_HasSeqCache And g_SeqDocPtr = ObjPtr(doc) And g_MathSeqCached > 0 Then
+            SetDocVariable doc, "mathcfg_seq", CStr(g_MathSeqCached)
+        End If
     End If
 End Sub
 Public Function NextMathSeq(ByVal doc As Document) As Long
-    If Not g_HasSeqCache Then
+    If Not g_HasSeqCache Or g_SeqDocPtr <> ObjPtr(doc) Then
         InitMathSeqCache doc
         g_HasSeqCache = False
+        g_SeqDocPtr = 0
         g_MathSeqCached = g_MathSeqCached + 1
         SetDocVariable doc, "mathcfg_seq", CStr(g_MathSeqCached)
         NextMathSeq = g_MathSeqCached
@@ -75,12 +64,16 @@ Public Function NextMathSeq(ByVal doc As Document) As Long
     NextMathSeq = g_MathSeqCached
 End Function
 Public Sub SetDocVariable(ByVal doc As Document, ByVal varName As String, ByVal varVal As String)
+    If Len(varVal) > 65000 Then
+        Exit Sub
+    End If
     On Error Resume Next
     doc.Variables(varName).Value = varVal
     If Err.Number <> 0 Then
         Err.Clear
         doc.Variables.Add varName, varVal
     End If
+    Err.Clear
     On Error GoTo 0
 End Sub
 Public Function GetDocVariable(ByVal doc As Document, ByVal varName As String) As String
@@ -101,34 +94,17 @@ Public Sub NotifyUser(ByVal msg As String)
 End Sub
 
 Public Function FindEnclosingMathBookmark(ByVal doc As Document, ByVal selStart As Long, ByVal selEnd As Long, ByRef outBmName As String, ByRef outBmKind As Long) As Boolean
-    Dim bm As Bookmark
-    Dim bStart As Long
-    Dim bEnd As Long
-    Dim ovStart As Long
-    Dim ovEnd As Long
-    Dim ovLen As Long
-    Dim bestOverlap As Long
-    Dim bestDist As Long
-    Dim kind As Long
-    Dim bestKind As Long
-    Dim bestBm As String
-    Dim isOverlapping As Boolean
-
+    Dim bm As Bookmark, bStart As Long, bEnd As Long, ovLen As Long
+    Dim bestOverlap As Long, bestDist As Long, kind As Long, bestKind As Long, bestBm As String, isOverlapping As Boolean
     outBmName = ""
     outBmKind = ModMathScanner.BM_KIND_NONE
-    bestBm = ""
     bestOverlap = -1
     bestDist = 999999
-    bestKind = ModMathScanner.BM_KIND_NONE
     For Each bm In doc.Bookmarks
         If Left$(bm.Name, 8) = "bm_math_" Then
             bStart = bm.Range.Start
             bEnd = bm.Range.End
-            If selEnd > selStart Then
-                isOverlapping = (selStart < bEnd And selEnd > bStart)
-            Else
-                isOverlapping = (selStart >= bStart And selEnd <= bEnd)
-            End If
+            If selEnd > selStart Then isOverlapping = (selStart < bEnd And selEnd > bStart) Else isOverlapping = (selStart >= bStart And selEnd <= bEnd)
             If isOverlapping Then
                 kind = ModMathScanner.BM_KIND_OMATH
                 If Left$(bm.Name, 13) = "bm_math_pink_" Then
@@ -142,15 +118,7 @@ Public Function FindEnclosingMathBookmark(ByVal doc As Document, ByVal selStart 
                     FindEnclosingMathBookmark = True
                     Exit Function
                 End If
-                ovStart = selStart
-                If bStart > ovStart Then
-                    ovStart = bStart
-                End If
-                ovEnd = selEnd
-                If bEnd < ovEnd Then
-                    ovEnd = bEnd
-                End If
-                ovLen = ovEnd - ovStart
+                ovLen = IIf(bEnd < selEnd, bEnd, selEnd) - IIf(bStart > selStart, bStart, selStart)
                 If ovLen > bestOverlap Or (ovLen = bestOverlap And (bEnd - bStart) < bestDist) Then
                     bestOverlap = ovLen
                     bestDist = bEnd - bStart
@@ -166,94 +134,84 @@ Public Function FindEnclosingMathBookmark(ByVal doc As Document, ByVal selStart 
         FindEnclosingMathBookmark = True
     End If
 End Function
-
 Public Sub AppendPairUnique(ByRef starts() As Long, ByRef ends() As Long, ByRef pairCount As Long, ByVal firstPos As Long, ByVal lastPos As Long)
     Dim i As Long
-    Dim overlaps As Boolean
-
-    overlaps = False
     For i = 1 To pairCount
         If firstPos < ends(i) And lastPos > starts(i) Then
-            overlaps = True
-            Exit For
+            Exit Sub
         End If
     Next i
-    If Not overlaps Then
-        pairCount = pairCount + 1
-        If pairCount = 1 Then
-            ReDim starts(1 To 1)
-            ReDim ends(1 To 1)
-        Else
-            ReDim Preserve starts(1 To pairCount)
-            ReDim Preserve ends(1 To pairCount)
-        End If
-        starts(pairCount) = firstPos
-        ends(pairCount) = lastPos
+    pairCount = pairCount + 1
+    If pairCount = 1 Then
+        ReDim starts(1 To 1)
+        ReDim ends(1 To 1)
+    Else
+        ReDim Preserve starts(1 To pairCount)
+        ReDim Preserve ends(1 To pairCount)
     End If
+    starts(pairCount) = firstPos
+    ends(pairCount) = lastPos
 End Sub
 Private Function IsDomPosEscaped(ByVal doc As Document, ByVal pStart As Long, ByVal pos As Long) As Boolean
-    Dim curPos As Long
     Dim slashCount As Long
-    curPos = pos
-    slashCount = 0
-    Do While curPos > pStart
-        If doc.Range(curPos - 1, curPos).Text <> "\" Then
+    Do While pos > pStart
+        If doc.Range(pos - 1, pos).Text <> "\" Then
             Exit Do
         End If
         slashCount = slashCount + 1
-        curPos = curPos - 1
+        pos = pos - 1
     Loop
     IsDomPosEscaped = (slashCount Mod 2 = 1)
 End Function
-Private Function IsMathOpeningAheadDom(ByVal doc As Document, ByVal posAfter As Long, ByVal limit As Long) As Boolean
-    Dim aheadText As String
-    Dim spanText As String
-    Dim ch As String
-    Dim chAfterNext As String
-    Dim nextDollarPos As Long
-    aheadText = doc.Range(posAfter, limit).Text
-    nextDollarPos = InStr(1, aheadText, "$")
-    If nextDollarPos <= 0 Then
-        IsMathOpeningAheadDom = False
-        Exit Function
+Public Sub MarkSpanPink(ByVal doc As Document, ByVal rng As Range, ByVal seq As Long, ByVal varText As String)
+    Dim idStr As String
+    If Right$(rng.Text, 1) = Chr(7) Then
+        ModMathInline.TrimTrailingDomMarks rng
     End If
-    spanText = Left$(aheadText, nextDollarPos - 1)
-    If Len(spanText) = 0 Or Len(spanText) > 250 Then
-        IsMathOpeningAheadDom = False
-        Exit Function
+    idStr = Format$(seq, "00000")
+    ApplyPastelShading rng, ModMathScanner.COLOR_PASTEL_PINK
+    doc.Bookmarks.Add "bm_math_pink_" & idStr, rng
+    SetDocVariable doc, "bm_math_" & idStr, varText
+End Sub
+Public Function InferIsBlock(ByVal rawLatex As String, ByVal doc As Document, ByVal idStr As String) As Boolean
+    If Left$(rawLatex, 2) = "$$" Or Left$(rawLatex, 2) = "\[" Or (Left$(rawLatex, 6) = "\begin" And Left$(rawLatex, 2) <> "\(") Then
+        InferIsBlock = True
+    ElseIf Left$(rawLatex, 1) = "$" Or Left$(rawLatex, 2) = "\(" Then
+        InferIsBlock = False
+    ElseIf Len(idStr) > 0 Then
+        InferIsBlock = (GetDocVariable(doc, "bm_math_" & idStr & "_isblock") = "1")
     End If
-    If InStr(1, spanText, vbCr) > 0 Or InStr(1, spanText, Chr(11)) > 0 Then
-        IsMathOpeningAheadDom = False
-        Exit Function
-    End If
-    ch = Right$(spanText, 1)
-    If ch = " " Or ch = vbTab Then
-        IsMathOpeningAheadDom = False
-        Exit Function
-    End If
-    If nextDollarPos < Len(aheadText) Then
-        chAfterNext = Mid$(aheadText, nextDollarPos + 1, 1)
-        If chAfterNext >= "0" And chAfterNext <= "9" Then
-            IsMathOpeningAheadDom = False
-            Exit Function
-        End If
-    End If
-    IsMathOpeningAheadDom = True
 End Function
-
 Private Function CheckOpeningDollarDom(ByVal doc As Document, ByVal posEnd As Long, ByVal limit As Long, ByVal cAfter As String) As Boolean
+    Dim aheadText As String
+
     If cAfter = " " Or cAfter = vbTab Or cAfter = vbCr Or cAfter = Chr(11) Or cAfter = Chr(7) Then
-        CheckOpeningDollarDom = False
         Exit Function
     End If
     If cAfter >= "0" And cAfter <= "9" Then
-        CheckOpeningDollarDom = IsMathOpeningAheadDom(doc, posEnd, limit)
+        aheadText = doc.Range(posEnd, limit).Text
+        CheckOpeningDollarDom = ModMathInline.IsMathOpeningAheadText(aheadText, 1, Len(aheadText))
     Else
         CheckOpeningDollarDom = True
     End If
 End Function
+
+Public Sub InitDomFind(ByVal f As Find, ByVal findTxt As String)
+    f.ClearFormatting
+    f.Text = findTxt
+    f.Forward = True
+    f.Wrap = 0
+    f.Format = False
+    f.MatchWildcards = False
+    f.MatchWholeWord = False
+    f.MatchAllWordForms = False
+    f.MatchSoundsLike = False
+    f.IgnorePunct = False
+End Sub
+
 Public Sub FindDollarPairsDom(ByVal doc As Document, ByVal p As Paragraph, ByRef outStarts() As Long, ByRef outEnds() As Long, ByRef outPairCount As Long)
     Dim fRng As Range
+    Dim candRng As Range
     Dim limit As Long
     Dim pStart As Long
     Dim openStart As Long
@@ -263,76 +221,91 @@ Public Sub FindDollarPairsDom(ByVal doc As Document, ByVal p As Paragraph, ByRef
     Dim isValidClose As Boolean
     Dim cBefore As String
     Dim cAfter As String
+
     outPairCount = 0
     pStart = p.Range.Start
     limit = p.Range.End
-    Set fRng = p.Range.Duplicate
-    fRng.Find.ClearFormatting
-    fRng.Find.MatchWildcards = False
-    fRng.Find.Text = "$"
-    fRng.Find.Forward = True
-    fRng.Find.Wrap = 0
-    hasOpen = False
-    openStart = 0
+    If Right$(p.Range.Text, 1) = Chr(7) Or Right$(p.Range.Text, 1) = vbCr Then
+        limit = limit - 1
+    End If
+    If limit <= pStart Then
+        Exit Sub
+    End If
+    Set fRng = doc.Range(pStart, limit)
+    InitDomFind fRng.Find, "$"
+    Dim prevEnd As Long
+    prevEnd = pStart
     Do While fRng.Find.Execute
-        If fRng.Start >= limit Then
+        If fRng.Start >= limit Or fRng.Start < prevEnd Or fRng.End <= prevEnd Then
             Exit Do
         End If
-        isEscaped = IsDomPosEscaped(doc, pStart, fRng.Start)
-        isDbl = False
-        If Not isEscaped Then
-            If fRng.End < limit Then
-                If doc.Range(fRng.Start, fRng.Start + 2).Text = "$$" Then
-                    isDbl = True
+        prevEnd = fRng.End
+        If fRng.OMaths.Count = 0 And fRng.Fields.Count = 0 Then
+            isEscaped = IsDomPosEscaped(doc, pStart, fRng.Start)
+            isDbl = False
+            If Not isEscaped Then
+                If fRng.End < limit Then
+                    If doc.Range(fRng.Start, fRng.Start + 2).Text = "$$" Then
+                        isDbl = True
+                    End If
                 End If
-            End If
-            If fRng.Start > pStart Then
-                If doc.Range(fRng.Start - 1, fRng.Start + 1).Text = "$$" Then
-                    isDbl = True
-                End If
-            End If
-        End If
-        If isDbl Then
-            hasOpen = False
-            openStart = 0
-        ElseIf Not isEscaped Then
-            cBefore = ""
-            If fRng.Start > pStart Then
-                cBefore = doc.Range(fRng.Start - 1, fRng.Start).Text
-            End If
-            cAfter = ""
-            If fRng.End < limit Then
-                cAfter = doc.Range(fRng.End, fRng.End + 1).Text
-            End If
-            If hasOpen Then
-                isValidClose = False
-                If cBefore <> " " And cBefore <> vbTab And cBefore <> vbCr And cBefore <> Chr(11) And cBefore <> Chr(7) Then
-                    If Not (cAfter >= "0" And cAfter <= "9") Then
-                        If fRng.End - openStart >= 2 And fRng.End - openStart <= 2000 Then
-                            isValidClose = True
+                If fRng.Start > pStart Then
+                    If doc.Range(fRng.Start - 1, fRng.Start + 1).Text = "$$" Then
+                        If Not IsDomPosEscaped(doc, pStart, fRng.Start - 1) Then
+                            isDbl = True
                         End If
                     End If
                 End If
-                If isValidClose Then
-                    AppendPairUnique outStarts, outEnds, outPairCount, openStart, fRng.End
-                    hasOpen = False
-                    openStart = 0
+            End If
+            If isDbl Then
+                hasOpen = False
+                openStart = 0
+            ElseIf Not isEscaped Then
+                cBefore = ""
+                If fRng.Start > pStart Then
+                    cBefore = doc.Range(fRng.Start - 1, fRng.Start).Text
+                End If
+                cAfter = ""
+                If fRng.End < limit Then
+                    cAfter = doc.Range(fRng.End, fRng.End + 1).Text
+                End If
+                If hasOpen Then
+                    isValidClose = False
+                    If cBefore <> " " And cBefore <> vbTab And cBefore <> vbCr And cBefore <> Chr(11) And cBefore <> Chr(7) Then
+                        If Not (cAfter >= "0" And cAfter <= "9") Then
+                            If fRng.End - openStart >= 2 And fRng.End - openStart <= 2000 Then
+                                isValidClose = True
+                            End If
+                        End If
+                    End If
+                    If isValidClose Then
+                        Set candRng = doc.Range(openStart, fRng.End)
+                        If candRng.OMaths.Count = 0 And candRng.Fields.Count = 0 And Len(Trim$(doc.Range(openStart + 1, fRng.Start).Text)) > 0 Then
+                            AppendPairUnique outStarts, outEnds, outPairCount, openStart, fRng.End
+                        End If
+                        hasOpen = False
+                        openStart = 0
+                    ElseIf CheckOpeningDollarDom(doc, fRng.End, limit, cAfter) Then
+                        openStart = fRng.Start
+                        hasOpen = True
+                    End If
                 ElseIf CheckOpeningDollarDom(doc, fRng.End, limit, cAfter) Then
                     openStart = fRng.Start
                     hasOpen = True
                 End If
-            ElseIf CheckOpeningDollarDom(doc, fRng.End, limit, cAfter) Then
-                openStart = fRng.Start
-                hasOpen = True
             End If
         End If
-        fRng.Collapse 0
+        If fRng.End >= limit Then
+            Exit Do
+        End If
+        fRng.SetRange fRng.End, limit
     Loop
 End Sub
 
 Public Sub FindParenPairsDom(ByVal doc As Document, ByVal p As Paragraph, ByRef starts() As Long, ByRef ends() As Long, ByRef pairCount As Long)
     Dim fOpen As Range
     Dim fClose As Range
+    Dim candRng As Range
     Dim pStart As Long
     Dim limit As Long
     Dim openPos As Long
@@ -341,54 +314,83 @@ Public Sub FindParenPairsDom(ByVal doc As Document, ByVal p As Paragraph, ByRef 
 
     pStart = p.Range.Start
     limit = p.Range.End
-    Set fOpen = p.Range.Duplicate
-    fOpen.Find.ClearFormatting
-    fOpen.Find.MatchWildcards = False
-    fOpen.Find.Text = "\("
-    fOpen.Find.Forward = True
-    fOpen.Find.Wrap = 0
-
+    If Right$(p.Range.Text, 1) = Chr(7) Or Right$(p.Range.Text, 1) = vbCr Then
+        limit = limit - 1
+    End If
+    If limit <= pStart Then
+        Exit Sub
+    End If
+    Set fOpen = doc.Range(pStart, limit)
+    InitDomFind fOpen.Find, "\("
+    Dim prevOpenEnd As Long
+    Dim prevCloseEnd As Long
+    Dim prevInEnd As Long
+    prevOpenEnd = pStart
     Do While fOpen.Find.Execute
-        If fOpen.Start >= limit Then
+        If fOpen.Start >= limit Or fOpen.Start < prevOpenEnd Or fOpen.End <= prevOpenEnd Then
             Exit Do
         End If
-        If Not IsDomPosEscaped(doc, pStart, fOpen.Start) Then
+        prevOpenEnd = fOpen.End
+        If fOpen.OMaths.Count = 0 And fOpen.Fields.Count = 0 And Not IsDomPosEscaped(doc, pStart, fOpen.Start) Then
             openPos = fOpen.Start
+            If fOpen.End >= limit Then
+                Exit Do
+            End If
             Set fClose = doc.Range(fOpen.End, limit)
-            fClose.Find.ClearFormatting
-            fClose.Find.MatchWildcards = False
-            fClose.Find.Text = "\)"
-            fClose.Find.Forward = True
-            fClose.Find.Wrap = 0
+            InitDomFind fClose.Find, "\)"
             foundClose = False
+            prevCloseEnd = fOpen.End
             Do While fClose.Find.Execute
-                If fClose.Start >= limit Then
+                If fClose.Start >= limit Or fClose.Start < prevCloseEnd Or fClose.End <= prevCloseEnd Then
                     Exit Do
                 End If
-                If Not IsDomPosEscaped(doc, pStart, fClose.Start) Then
+                prevCloseEnd = fClose.End
+                If fClose.OMaths.Count = 0 And fClose.Fields.Count = 0 And Not IsDomPosEscaped(doc, pStart, fClose.Start) Then
                     closePos = fClose.End
                     foundClose = True
                     Exit Do
                 End If
-                fClose.Collapse 0
+                If fClose.End >= limit Then
+                    Exit Do
+                End If
+                fClose.SetRange fClose.End, limit
             Loop
             If Not foundClose Then
                 Exit Do
             End If
-            fOpen.Collapse 0
-            Do While fOpen.Find.Execute
-                If fOpen.Start >= fClose.Start Or fOpen.Start >= limit Then
-                    Exit Do
+            If fOpen.End < fClose.Start Then
+                fOpen.SetRange fOpen.End, fClose.Start
+                prevInEnd = fOpen.Start
+                Do While fOpen.Find.Execute
+                    If fOpen.Start >= fClose.Start Or fOpen.Start >= limit Or fOpen.Start < prevInEnd Or fOpen.End <= prevInEnd Then
+                        Exit Do
+                    End If
+                    prevInEnd = fOpen.End
+                    If fOpen.OMaths.Count = 0 And fOpen.Fields.Count = 0 And Not IsDomPosEscaped(doc, pStart, fOpen.Start) Then
+                        openPos = fOpen.Start
+                    End If
+                    If fOpen.End >= fClose.Start Then
+                        Exit Do
+                    End If
+                    fOpen.SetRange fOpen.End, fClose.Start
+                Loop
+            End If
+            Set candRng = doc.Range(openPos, closePos)
+            If candRng.OMaths.Count = 0 And candRng.Fields.Count = 0 And closePos - openPos > 4 Then
+                If Len(Trim$(doc.Range(openPos + 2, closePos - 2).Text)) > 0 Then
+                    AppendPairUnique starts, ends, pairCount, openPos, closePos
                 End If
-                If Not IsDomPosEscaped(doc, pStart, fOpen.Start) Then
-                    openPos = fOpen.Start
-                End If
-                fOpen.Collapse 0
-            Loop
-            AppendPairUnique starts, ends, pairCount, openPos, closePos
+            End If
+            If closePos >= limit Then
+                Exit Do
+            End If
+            prevOpenEnd = closePos
             fOpen.SetRange closePos, limit
         Else
-            fOpen.Collapse 0
+            If fOpen.End >= limit Then
+                Exit Do
+            End If
+            fOpen.SetRange fOpen.End, limit
         End If
     Loop
 End Sub

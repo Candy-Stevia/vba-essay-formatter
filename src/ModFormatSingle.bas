@@ -8,6 +8,15 @@ Option Explicit
 ' Architecture: Academic Document Format Engine (Modular Single Item Dispatcher)
 ' ==============================================================================
 
+Private Sub RestoreMathFont(ByVal rng As Range, ByVal hasOMaths As Boolean)
+    If Not hasOMaths Then Exit Sub
+    If rng.OMaths.Count = 0 Then Exit Sub
+    Dim mIdx As Long
+    For mIdx = 1 To rng.OMaths.Count
+        rng.OMaths(mIdx).Range.Font.Name = "Cambria Math"
+    Next mIdx
+End Sub
+
 Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
                            ByVal tType As Long, ByVal bmName As String, _
                            ByVal fontName As String, ByVal fontSize As Single, _
@@ -19,13 +28,27 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             rng.Font.Name = fontName
             rng.Font.Size = fontSize
             rng.Font.Bold = True
-            rng.Case = 1
+            rng.Font.Italic = False
             If hasOMaths Then
                 If rng.OMaths.Count > 0 Then
+                    Dim segPos As Long, omRng As Range
+                    segPos = rng.Start
                     For mIdx = 1 To rng.OMaths.Count
-                        rng.OMaths(mIdx).Range.Font.Name = "Cambria Math"
+                        Set omRng = rng.OMaths(mIdx).Range
+                        If omRng.Start > segPos Then
+                            doc.Range(segPos, omRng.Start).Case = 1
+                        End If
+                        omRng.Font.Name = "Cambria Math"
+                        If omRng.End > segPos Then segPos = omRng.End
                     Next mIdx
+                    If segPos < rng.End Then
+                        doc.Range(segPos, rng.End).Case = 1
+                    End If
+                Else
+                    rng.Case = 1
                 End If
+            Else
+                rng.Case = 1
             End If
             rng.ParagraphFormat.Alignment = 1
             rng.ParagraphFormat.FirstLineIndent = 0#
@@ -40,13 +63,8 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             rng.Font.Size = fontSize
             rng.Font.Bold = True
             rng.Bold = True
-            If hasOMaths Then
-                If rng.OMaths.Count > 0 Then
-                    For mIdx = 1 To rng.OMaths.Count
-                        rng.OMaths(mIdx).Range.Font.Name = "Cambria Math"
-                    Next mIdx
-                End If
-            End If
+            rng.Font.Italic = False
+            RestoreMathFont rng, hasOMaths
             rng.ParagraphFormat.Alignment = 0
             rng.ParagraphFormat.FirstLineIndent = indentPts
             rng.ParagraphFormat.LeftIndent = ModConstants.CmToPoints(0.5)
@@ -61,13 +79,7 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             rng.Font.Bold = True
             rng.Bold = True
             rng.Font.Italic = True
-            If hasOMaths Then
-                If rng.OMaths.Count > 0 Then
-                    For mIdx = 1 To rng.OMaths.Count
-                        rng.OMaths(mIdx).Range.Font.Name = "Cambria Math"
-                    Next mIdx
-                End If
-            End If
+            RestoreMathFont rng, hasOMaths
             rng.ParagraphFormat.Alignment = 0
             rng.ParagraphFormat.FirstLineIndent = indentPts
             rng.ParagraphFormat.LeftIndent = ModConstants.CmToPoints(0.75)
@@ -81,13 +93,7 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             rng.Font.Size = fontSize
             rng.Font.Bold = False
             rng.Font.Italic = True
-            If hasOMaths Then
-                If rng.OMaths.Count > 0 Then
-                    For mIdx = 1 To rng.OMaths.Count
-                        rng.OMaths(mIdx).Range.Font.Name = "Cambria Math"
-                    Next mIdx
-                End If
-            End If
+            RestoreMathFont rng, hasOMaths
             rng.ParagraphFormat.Alignment = 0
             rng.ParagraphFormat.FirstLineIndent = indentPts
             rng.ParagraphFormat.LeftIndent = ModConstants.CmToPoints(1#)
@@ -101,6 +107,8 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             rng.Font.Size = fontSize
             rng.Font.Bold = True
             rng.Bold = True
+            rng.Font.Italic = False
+            RestoreMathFont rng, hasOMaths
             rng.ParagraphFormat.Alignment = 0
             rng.ParagraphFormat.FirstLineIndent = indentPts
             rng.ParagraphFormat.LeftIndent = 0#
@@ -118,6 +126,8 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             rng.Font.Size = fontSize
             rng.Font.Bold = True
             rng.Bold = True
+            rng.Font.Italic = False
+            RestoreMathFont rng, hasOMaths
             rng.ParagraphFormat.Alignment = 1
             rng.ParagraphFormat.FirstLineIndent = 0#
             rng.ParagraphFormat.LeftIndent = 0#
@@ -131,10 +141,12 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             rng.ParagraphFormat.LeftIndent = 0#
         Case ElementTypeSourceNote
             ModFormatHeading.FormatSourceNoteRange doc, rng, fontName, fontSize
+            RestoreMathFont rng, hasOMaths
         Case ElementTypeTableCell
             ModFormatCore.ClearYellowAndRedBleed rng
             rng.Font.Name = fontName
             rng.Font.Size = fontSize
+            RestoreMathFont rng, hasOMaths
             If rng.Cells.Count > 0 Then
                 rng.Cells(1).VerticalAlignment = 1
             End If
@@ -145,13 +157,7 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             ModFormatCore.ClearYellowAndRedBleed rng
             rng.Font.Name = fontName
             rng.Font.Size = fontSize
-            If hasOMaths Then
-                If rng.OMaths.Count > 0 Then
-                    For mIdx = 1 To rng.OMaths.Count
-                        rng.OMaths(mIdx).Range.Font.Name = "Cambria Math"
-                    Next mIdx
-                End If
-            End If
+            RestoreMathFont rng, hasOMaths
             rng.ParagraphFormat.Alignment = 3
             rng.ParagraphFormat.FirstLineIndent = indentPts
             rng.ParagraphFormat.LeftIndent = 0#
