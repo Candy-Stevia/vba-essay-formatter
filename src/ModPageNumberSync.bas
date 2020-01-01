@@ -301,4 +301,30 @@ ErrHandler:
     ModConstants.g_SilentErrors = ModConstants.g_SilentErrors + 1
     ModRibbonCallbacks.g_LastError = "SyncAllListPages Error " & Err.Number & ": " & Err.Description
 End Function
+
+Public Function ApplyEqTagAndWrapRange(ByVal doc As Document, ByVal om As OMath, ByVal eqTag As String) As Range
+    Dim dispTag As String, rTab As Single, bStart As Long, tagRng As Range
+    If Left$(eqTag, 1) = "(" And Right$(eqTag, 1) = ")" Then
+        dispTag = eqTag
+    Else
+        dispTag = "(" & eqTag & ")"
+    End If
+    If om.Range.Information(12) Then
+        rTab = om.Range.Cells(1).Width - 10#
+        If rTab < 40# Then rTab = 40#
+    Else
+        rTab = CalculateRightTab(doc, om.Range)
+    End If
+    om.Range.ParagraphFormat.Alignment = 0
+    om.Range.ParagraphFormat.FirstLineIndent = 0#
+    om.Range.ParagraphFormat.LeftIndent = 0#
+    om.Range.ParagraphFormat.TabStops.ClearAll
+    om.Range.ParagraphFormat.TabStops.Add rTab / 2#, 1
+    om.Range.ParagraphFormat.TabStops.Add rTab, 2
+    bStart = om.Range.Start
+    om.Range.InsertBefore vbTab
+    Set tagRng = doc.Range(om.Range.End, om.Range.End)
+    tagRng.InsertAfter vbTab & dispTag
+    Set ApplyEqTagAndWrapRange = doc.Range(bStart, tagRng.End)
+End Function
 ' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

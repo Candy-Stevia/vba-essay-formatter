@@ -206,4 +206,61 @@ Public Sub RestoreTrackChanges(ByVal doc As Document, ByVal wasTracking As Boole
         doc.TrackRevisions = True
     End If
 End Sub
+
+Public Function BeginProtectedSession(ByVal doc As Document, ByRef outBackupPath As String, _
+                                      ByRef outWasTracking As Boolean) As Boolean
+    Dim errMsg As String
+    outBackupPath = ""
+    outWasTracking = False
+    If Not ValidatePreFlightConditions(doc, errMsg) Then
+        ModRibbonCallbacks.g_LastError = errMsg
+        If Application.DisplayAlerts <> 0 Then ModUI.MsgBoxW errMsg, vbCritical, ModConstants.Uni("Pre-Flight Failed (Ki\u1ec3m tra th\u1ea5t b\u1ea1i)")
+        Exit Function
+    End If
+    If Not CreatePhysicalBackup(doc, outBackupPath, errMsg) Then
+        ModRibbonCallbacks.g_LastError = errMsg
+        If Application.DisplayAlerts <> 0 Then ModUI.MsgBoxW errMsg, vbCritical, ModConstants.Uni("Backup Failed (Sao l\u01b0u th\u1ea5t b\u1ea1i)")
+        Exit Function
+    End If
+    If Not HandleTrackChanges(doc, outWasTracking) Then
+        DeleteFileUnicode outBackupPath
+        outBackupPath = ""
+        Exit Function
+    End If
+    BeginProtectedSession = True
+End Function
+
+Public Sub EndProtectedSession(ByVal doc As Document, ByVal backupPath As String, _
+                               ByVal wasTracking As Boolean, ByVal keepBackup As Boolean)
+    On Error Resume Next
+    If Not doc Is Nothing Then RestoreTrackChanges doc, wasTracking
+    If Not keepBackup And Len(backupPath) > 0 And ModConstants.g_SilentErrors = 0 Then
+        DeleteFileUnicode backupPath
+    End If
+End Sub
+
+Public Function StartUndoSafe(ByVal recName As String, ByRef outUndo As Object) As Boolean
+    On Error Resume Next
+    Err.Clear
+    Set outUndo = Application.UndoRecord
+    If Err.Number = 0 And Not outUndo Is Nothing Then
+        If Not outUndo.IsRecordingCustomRecord Then
+            Err.Clear
+            outUndo.StartCustomRecord recName
+            StartUndoSafe = (Err.Number = 0)
+        End If
+    End If
+    Err.Clear
+End Function
+
+Public Sub EndUndoSafe(ByRef ioUndo As Object, ByRef ioStarted As Boolean)
+    On Error Resume Next
+    If ioStarted Then
+        If Not ioUndo Is Nothing Then
+            If ioUndo.IsRecordingCustomRecord Then ioUndo.EndCustomRecord
+        End If
+        ioStarted = False
+    End If
+    Err.Clear
+End Sub
 ' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

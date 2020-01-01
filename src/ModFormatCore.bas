@@ -15,10 +15,23 @@ Public Type FormatStats
     CountFigures As Long
 End Type
 
+Private Sub ClearMixedRange(ByVal docRef As Document, ByVal sPos As Long, ByVal ePos As Long)
+    If ePos <= sPos Then Exit Sub
+    Dim subRng As Range, h As Long, midPos As Long
+    Set subRng = docRef.Range(sPos, ePos)
+    h = subRng.HighlightColorIndex
+    If h = 7 Or h = 6 Then
+        subRng.HighlightColorIndex = 0
+    ElseIf h = 9999999 And (ePos - sPos > 1) Then
+        midPos = sPos + ((ePos - sPos) \ 2)
+        ClearMixedRange docRef, sPos, midPos
+        ClearMixedRange docRef, midPos, ePos
+    End If
+End Sub
+
 Public Sub ClearYellowAndRedBleed(ByVal rng As Range)
     On Error Resume Next
-    Dim h As Long, subP As Paragraph, ph As Long
-    Dim docRef As Document, chRng As Range, pos As Long
+    Dim h As Long, subP As Paragraph, ph As Long, docRef As Document
     h = rng.HighlightColorIndex
     If h = 7 Or h = 6 Then
         rng.HighlightColorIndex = 0
@@ -29,12 +42,7 @@ Public Sub ClearYellowAndRedBleed(ByVal rng As Range)
             If ph = 7 Or ph = 6 Then
                 subP.Range.HighlightColorIndex = 0
             ElseIf ph = 9999999 Then
-                For pos = subP.Range.Start To subP.Range.End - 1
-                    Set chRng = docRef.Range(pos, pos + 1)
-                    If chRng.HighlightColorIndex = 7 Or chRng.HighlightColorIndex = 6 Then
-                        chRng.HighlightColorIndex = 0
-                    End If
-                Next pos
+                ClearMixedRange docRef, subP.Range.Start, subP.Range.End
             End If
         Next subP
     End If

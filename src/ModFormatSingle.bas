@@ -139,6 +139,7 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             rng.ParagraphFormat.Alignment = 1
             rng.ParagraphFormat.FirstLineIndent = 0#
             rng.ParagraphFormat.LeftIndent = 0#
+            rng.ParagraphFormat.KeepWithNext = True
         Case ElementTypeSourceNote
             ModFormatHeading.FormatSourceNoteRange doc, rng, fontName, fontSize
             RestoreMathFont rng, hasOMaths

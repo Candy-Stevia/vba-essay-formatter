@@ -10,52 +10,39 @@ End Function
 Public Sub SetDocVariable(ByVal doc As Document, ByVal varName As String, ByVal varVal As String)
     ModMathHelpers.SetDocVariable doc, varName, varVal
 End Sub
-Private Function StartUndoSafe(ByVal recName As String, ByRef outUndo As Object) As Boolean
-    On Error Resume Next
-    Err.Clear
-    Set outUndo = Application.UndoRecord
-    If Err.Number = 0 And Not outUndo Is Nothing Then
-        If Not outUndo.IsRecordingCustomRecord Then
-            Err.Clear
-            outUndo.StartCustomRecord recName
-            StartUndoSafe = (Err.Number = 0)
-        End If
+Private Sub CountMathOutcome(ByVal ok As Boolean, ByVal isPink As Boolean, ByRef builtCnt As Long, ByRef pinkCnt As Long)
+    If ok Then
+        builtCnt = builtCnt + 1
+    ElseIf isPink Then
+        pinkCnt = pinkCnt + 1
     End If
-    Err.Clear
-    On Error GoTo 0
-End Function
-Private Sub EndUndoSafe(ByRef ioUndo As Object, ByRef ioStarted As Boolean)
-    On Error Resume Next
-    If ioStarted Then
-        If Not ioUndo Is Nothing Then
-            If ioUndo.IsRecordingCustomRecord Then
-                ioUndo.EndCustomRecord
-            End If
-        End If
-        ioStarted = False
-    End If
-    Err.Clear
 End Sub
-Private Function InsertOpcAndShade(ByVal doc As Document, ByVal targetRng As Range, ByVal ommlXml As String, ByVal isBlock As Boolean, ByVal bmID As String) As Boolean
-    Dim opcXml As String
-    Dim om As OMath
+
+Private Function InsertOpcAndShade(ByVal doc As Document, ByVal targetRng As Range, ByVal ommlXml As String, ByVal isBlock As Boolean, ByVal bmID As String, Optional ByVal eqTag As String = "") As Boolean
+    Dim opcXml As String, om As OMath, wrapRng As Range, shadeCol As Long
     opcXml = ModOmmlEmit.WrapOmmlInFlatOpc(ommlXml)
     ModMathInline.TrimTrailingDomMarks targetRng
     On Error GoTo FailInsert
     targetRng.InsertXML opcXml
     If targetRng.OMaths.Count > 0 Then
         Set om = targetRng.OMaths(1)
+        Set wrapRng = om.Range
         If isBlock Then
             om.Type = 0
-            om.Range.ParagraphFormat.Alignment = 1
-            om.Range.ParagraphFormat.FirstLineIndent = 0
-            om.Range.ParagraphFormat.LeftIndent = 0
-            ModMathHelpers.ApplyPastelShading om.Range, ModMathScanner.COLOR_PASTEL_MINT
+            shadeCol = ModMathScanner.COLOR_PASTEL_MINT
+            If Len(eqTag) > 0 Then
+                Set wrapRng = ModPageNumberSync.ApplyEqTagAndWrapRange(doc, om, eqTag)
+            Else
+                om.Range.ParagraphFormat.Alignment = 1
+                om.Range.ParagraphFormat.FirstLineIndent = 0
+                om.Range.ParagraphFormat.LeftIndent = 0
+            End If
         Else
             om.Type = 1
-            ModMathHelpers.ApplyPastelShading om.Range, ModMathScanner.COLOR_PASTEL_CYAN
+            shadeCol = ModMathScanner.COLOR_PASTEL_CYAN
         End If
-        doc.Bookmarks.Add bmID, om.Range
+        ModMathHelpers.ApplyPastelShading wrapRng, shadeCol
+        doc.Bookmarks.Add bmID, wrapRng
         InsertOpcAndShade = True
     End If
     Exit Function
@@ -88,7 +75,7 @@ Private Function ConvertWithSeq(ByVal doc As Document, ByVal targetRng As Range,
     End If
     outIsPink = True
     If Not isAmb And Len(ommlXml) > 0 Then
-        If InsertOpcAndShade(doc, targetRng, ommlXml, isBlock, bmID) Then
+        If InsertOpcAndShade(doc, targetRng, ommlXml, isBlock, bmID, eqTag) Then
             If Len(prevBm) > 0 Then
                 If doc.Bookmarks.Exists(prevBm) Then
                     doc.Bookmarks(prevBm).Delete
@@ -114,39 +101,21 @@ Public Function ConvertRangeToMath(ByVal doc As Document, ByVal targetRng As Ran
     outSeqId = 0
     ConvertRangeToMath = ConvertWithSeq(doc, targetRng, rawLatex, isBlock, outSeqId, "", outIsPink)
 End Function
-Public Sub BuildAllMathInDocument(ByVal doc As Document)
-    Dim pairCount As Long
-    Dim k As Long
-    Dim dummySeq As Long
-    Dim totalParas As Long
-    Dim pStep As Long
-    Dim docEnd As Long
-    Dim prevViewType As Long
-    Dim isPink As Boolean
-    Dim isScanningActive As Boolean
-    Dim isAmb As Boolean
-    Dim weStartedUndo As Boolean
-    Dim prevScreen As Boolean
-    Dim prevPagination As Boolean
-    Dim hasPaginationState As Boolean
-    Dim hasWindowView As Boolean
-    Dim pStarts() As Long
-    Dim pEnds() As Long
-    Dim clsArr() As Long
-    Dim rawLatex As String
-    Dim rawPText As String
-    Dim pText As String
-    Dim innerT As String
-    Dim cAfter As String
-    Dim candRng As Range
-    Dim fRng As Range
-    Dim p As Paragraph
-    Dim nextP As Paragraph
-    Dim endPara As Paragraph
-    Dim objUndo As Object
-    If g_IsMathBuilding Or doc Is Nothing Then
-        Exit Sub
+Public Sub BuildAllMathInDocument(ByVal doc As Document, Optional ByVal enforceSafety As Boolean = False)
+    Dim pairCount As Long, k As Long, dummySeq As Long, totalParas As Long, pStep As Long, docEnd As Long, prevViewType As Long
+    Dim builtCount As Long, pinkCount As Long, prevFindEnd As Long
+    Dim isPink As Boolean, isScanningActive As Boolean, isAmb As Boolean, weStartedUndo As Boolean
+    Dim prevScreen As Boolean, prevPagination As Boolean, hasPaginationState As Boolean, hasWindowView As Boolean
+    Dim hasErr As Boolean, wasTracking As Boolean, backupPath As String
+    Dim pStarts() As Long, pEnds() As Long, clsArr() As Long
+    Dim rawLatex As String, rawPText As String, pText As String, innerT As String, cAfter As String
+    Dim candRng As Range, fRng As Range, p As Paragraph, nextP As Paragraph, endPara As Paragraph, objUndo As Object
+    If g_IsMathBuilding Or doc Is Nothing Then Exit Sub
+    If enforceSafety Then
+        If Not ModBackup.BeginProtectedSession(doc, backupPath, wasTracking) Then Exit Sub
     End If
+    ModConstants.g_SilentErrors = 0
+    ModRibbonCallbacks.g_LastError = ""
     prevScreen = Application.ScreenUpdating
     On Error GoTo ErrHandler
     g_IsMathBuilding = True
@@ -169,7 +138,7 @@ Public Sub BuildAllMathInDocument(ByVal doc As Document)
         End If
     End If
     On Error GoTo ErrHandler
-    weStartedUndo = StartUndoSafe("Build LaTeX Math (Review Mode)", objUndo)
+    weStartedUndo = ModBackup.StartUndoSafe("Build LaTeX Math (Review Mode)", objUndo)
     ModProgress.ProgressInit "LaTeX Math Engine"
     ModProgress.ProgressSetPhase ModConstants.Uni("Converting Math (Chuy\u1ec3n \u0111\u1ed5i to\u00e1n)"), 5#, 95#
     ModMathHelpers.InitMathSeqCache doc
@@ -180,7 +149,6 @@ Public Sub BuildAllMathInDocument(ByVal doc As Document)
     Set fRng = doc.Content.Duplicate
     ModMathHelpers.InitDomFind fRng.Find, "=contentStart()"
     fRng.Find.MatchCase = False
-    Dim prevFindEnd As Long
     prevFindEnd = 0
     Do While fRng.Find.Execute
         If fRng.End <= prevFindEnd Then
@@ -207,17 +175,16 @@ Public Sub BuildAllMathInDocument(ByVal doc As Document)
         rawPText = p.Range.Text
         pText = LCase$(Trim$(Replace(Replace(Replace(rawPText, vbCr, ""), Chr(11), " "), Chr(7), "")))
         If pText = "=contentend()" Then
-            Exit Do
-        End If
-        If Not ModMathScanner.IsInNoFlyZoneCached(p.Range, rawPText, isScanningActive) Then
+            isScanningActive = False
+        ElseIf Not ModMathScanner.IsInNoFlyZoneCached(p.Range, rawPText, isScanningActive) Then
             If InStr(1, rawPText, "$") > 0 Or InStr(1, rawPText, "\") > 0 Then
                 If ModMathScanner.CheckMultilineBlock(doc, p, endPara, rawLatex, isAmb) Then
                     Set nextP = endPara.Next
-                    ConvertRangeToMath doc, doc.Range(p.Range.Start, endPara.Range.End), rawLatex, True, dummySeq, isPink
+                    CountMathOutcome ConvertRangeToMath(doc, doc.Range(p.Range.Start, endPara.Range.End), rawLatex, True, dummySeq, isPink), isPink, builtCount, pinkCount
                 Else
                     pText = Trim$(Replace(Replace(Replace(rawPText, vbCr, ""), Chr(11), " "), Chr(7), ""))
                     If ModMathInline.IsSingleLineDisplayBlock(pText) Then
-                        ConvertRangeToMath doc, p.Range, pText, True, dummySeq, isPink
+                        CountMathOutcome ConvertRangeToMath(doc, p.Range, pText, True, dummySeq, isPink), isPink, builtCount, pinkCount
                     ElseIf pText <> "$$" And pText <> "\[" And pText <> "\]" And pText <> "$$$" And pText <> "$$$$" And pText <> "\[\]" Then
                         ModMathInline.FindInlinePairs doc, p, pStarts, pEnds, pairCount, rawPText
                         If pairCount > 0 Then
@@ -241,10 +208,11 @@ Public Sub BuildAllMathInDocument(ByVal doc As Document)
                                 If clsArr(k) = 1 Or clsArr(k) = 2 Then
                                     Set candRng = doc.Range(pStarts(k), pEnds(k))
                                     If clsArr(k) = 1 Then
-                                        ConvertRangeToMath doc, candRng, candRng.Text, False, dummySeq, isPink
+                                        CountMathOutcome ConvertRangeToMath(doc, candRng, candRng.Text, False, dummySeq, isPink), isPink, builtCount, pinkCount
                                     ElseIf Not ModMathInline.HasForbiddenDomChar(candRng.Text) Then
                                         dummySeq = ModMathHelpers.NextMathSeq(doc)
                                         ModMathHelpers.MarkSpanPink doc, candRng, dummySeq, candRng.Text
+                                        pinkCount = pinkCount + 1
                                     End If
                                 End If
                             Next k
@@ -261,17 +229,21 @@ CleanExit:
     ModMathHelpers.ResetMathSeqCache
     ModMathScanner.ResetNoFlyZoneCache
     ModProgress.ProgressFinish
-    If hasWindowView And doc.Windows.Count > 0 Then
-        doc.ActiveWindow.View.Type = prevViewType
-    End If
-    If hasPaginationState Then
-        Application.Options.Pagination = prevPagination
-    End If
-    EndUndoSafe objUndo, weStartedUndo
+    If hasWindowView And doc.Windows.Count > 0 Then doc.ActiveWindow.View.Type = prevViewType
+    If hasPaginationState Then Application.Options.Pagination = prevPagination
+    ModBackup.EndUndoSafe objUndo, weStartedUndo
     Application.ScreenUpdating = prevScreen
+    If enforceSafety Then ModBackup.EndProtectedSession doc, backupPath, wasTracking, hasErr
     g_IsMathBuilding = False
+    If hasErr And Application.DisplayAlerts <> 0 Then
+        ModUI.MsgBoxW ModConstants.Uni("Math Engine error (L\u1ed7i d\u1ef1ng to\u00e1n): ") & ModRibbonCallbacks.g_LastError, vbCritical, ModConstants.Uni("Error (L\u1ed7i)")
+    ElseIf Not hasErr And enforceSafety And Application.DisplayAlerts <> 0 Then
+        ModUI.ShowMathSummaryReport builtCount, pinkCount
+    End If
     Exit Sub
 ErrHandler:
+    hasErr = True
+    ModRibbonCallbacks.g_LastError = "Math Error " & Err.Number & ": " & Err.Description
     Resume CleanExit
 End Sub
 Public Sub ToggleMathAtSelection(ByVal doc As Document)
@@ -292,7 +264,7 @@ Public Sub ToggleMathAtSelection(ByVal doc As Document)
         Exit Sub
     End If
     On Error GoTo ErrHandler
-    weStartedUndo = StartUndoSafe("Toggle LaTeX Math", objUndo)
+    weStartedUndo = ModBackup.StartUndoSafe("Toggle LaTeX Math", objUndo)
     If Not ModMathHelpers.FindEnclosingMathBookmark(doc, Selection.Start, Selection.End, foundBm, foundKind) Then
         If Selection.End > Selection.Start Then
             Set selRng = Selection.Range
@@ -313,6 +285,7 @@ Public Sub ToggleMathAtSelection(ByVal doc As Document)
                 doc.Bookmarks(foundBm).Delete
                 selRng.Delete
                 selRng.Text = rawLatex
+                selRng.ParagraphFormat.TabStops.ClearAll
                 ModMathHelpers.ApplyPastelShading selRng, ModMathScanner.COLOR_PASTEL_AMBER
                 doc.Bookmarks.Add "bm_math_src_" & idStr, selRng
             End If
@@ -330,25 +303,17 @@ Public Sub ToggleMathAtSelection(ByVal doc As Document)
         End If
     End If
 CleanToggleExit:
-    EndUndoSafe objUndo, weStartedUndo
+    ModBackup.EndUndoSafe objUndo, weStartedUndo
     Exit Sub
 ErrHandler:
     Resume CleanToggleExit
 End Sub
 Public Sub FinalizeAllMath(ByVal doc As Document, ByVal isSilent As Boolean)
-    Dim bm As Bookmark
-    Dim v As Variable
-    Dim objUndo As Object
-    Dim i As Long
-    Dim warnCount As Long
-    Dim finMsg As String
-    Dim weStartedUndo As Boolean
-    If g_IsMathBuilding Or doc Is Nothing Then
-        Exit Sub
-    End If
+    Dim bm As Bookmark, v As Variable, objUndo As Object, i As Long, warnCount As Long, finMsg As String, weStartedUndo As Boolean
+    If g_IsMathBuilding Or doc Is Nothing Then Exit Sub
     On Error GoTo ErrHandler
     If Not isSilent Then
-        weStartedUndo = StartUndoSafe("Finalize Math Equations", objUndo)
+        weStartedUndo = ModBackup.StartUndoSafe("Finalize Math Equations", objUndo)
     End If
     For i = doc.Bookmarks.Count To 1 Step -1
         Set bm = doc.Bookmarks(i)
@@ -368,7 +333,7 @@ Public Sub FinalizeAllMath(ByVal doc As Document, ByVal isSilent As Boolean)
             End If
         Next i
     End If
-    EndUndoSafe objUndo, weStartedUndo
+    ModBackup.EndUndoSafe objUndo, weStartedUndo
     If Not isSilent And Application.DisplayAlerts <> 0 Then
         finMsg = ModConstants.Uni("Math equations finalized. (\u0110\u00e3 ch\u1ed1t xong c\u00f4ng th\u1ee9c to\u00e1n h\u1ecdc.)")
         If warnCount > 0 Then
@@ -378,12 +343,14 @@ Public Sub FinalizeAllMath(ByVal doc As Document, ByVal isSilent As Boolean)
     End If
     Exit Sub
 ErrHandler:
-    EndUndoSafe objUndo, weStartedUndo
+    ModBackup.EndUndoSafe objUndo, weStartedUndo
 End Sub
 Public Sub Ribbon_OnMathBuild(ByVal control As IRibbonControl)
-    If Documents.Count > 0 Then
-        BuildAllMathInDocument ActiveDocument
+    If Documents.Count = 0 Then
+        If Application.DisplayAlerts <> 0 Then ModUI.MsgBoxW ModConstants.Uni("No open Word document found. (Kh\u00f4ng t\u00ecm th\u1ea5y t\u00e0i li\u1ec7u Word \u0111ang m\u1edf.)"), vbExclamation, ModConstants.Uni("Error (L\u1ed7i)")
+        Exit Sub
     End If
+    BuildAllMathInDocument ActiveDocument, True
 End Sub
 Public Sub Ribbon_OnMathToggle(ByVal control As IRibbonControl)
     If Documents.Count > 0 Then

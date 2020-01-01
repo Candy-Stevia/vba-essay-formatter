@@ -204,4 +204,15 @@ Public Sub ShowQuickUpdateReport(ByVal tocFound As Boolean, ByVal tocItems As Lo
     title = ModConstants.Uni("Quick Update Done (C\u1eadp nh\u1eadt xong)")
     MsgBoxW msg, vbInformation, title
 End Sub
+
+Public Sub ShowMathSummaryReport(ByVal builtCount As Long, ByVal pinkCount As Long)
+    Dim msg As String
+    msg = ModConstants.Uni("LaTeX Math conversion complete (Ho\u00e0n t\u1ea5t d\u1ef1ng c\u00f4ng th\u1ee9c to\u00e1n):") & vbCrLf & _
+          "- " & builtCount & " " & ModConstants.Uni("equation(s) converted (c\u00f4ng th\u1ee9c \u0111\u00e3 d\u1ef1ng)") & vbCrLf & _
+          "- " & pinkCount & " " & ModConstants.Uni("Pink item(s) need review (m\u1ee5c H\u1ed3ng c\u1ea7n ki\u1ec3m tra l\u1ea1i)")
+    If pinkCount > 0 Then
+        msg = msg & vbCrLf & vbCrLf & ModConstants.Uni("Tip: Click inside any Pink item and use Toggle / Edit to fix or force-convert. (G\u1ee3i \u00fd: \u0110\u1eb7t con tr\u1ecf v\u00e0o n\u1ec1n H\u1ed3ng v\u00e0 b\u1ea5m \u0110\u1ed5i / S\u1eeda.)")
+    End If
+    MsgBoxW msg, vbInformation, ModConstants.Uni("Done (Ho\u00e0n t\u1ea5t)")
+End Sub
 ' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
