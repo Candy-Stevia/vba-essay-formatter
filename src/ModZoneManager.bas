@@ -27,7 +27,7 @@ Private Function IsMarkerString(ByVal txt As String) As Boolean
     Dim c As String
     c = LCase$(Trim$(Replace(Replace(Replace(txt, vbCr, ""), Chr(7), ""), Chr(11), "")))
     Select Case c
-        Case "=contentstart()", "=contentend()", "=listcontent()", "=listtablehere()", "=listfigurehere()"
+        Case "=contentstart()", "=contentend()", "=listcontent()", "=listtablehere()", "=listfigurehere()", "=listacronyms()"
             IsMarkerString = True
     End Select
 End Function
@@ -144,13 +144,19 @@ Public Sub CleanMarkersForSubmission(ByVal doc As Document)
             End If
         End If
     Next p
+    Dim oldLen As Long
     For k = mCount To 1 Step -1
+        oldLen = doc.Range.End
         doc.Range(mStarts(k), mEnds(k)).Delete
+        If (oldLen - doc.Range.End) < (mEnds(k) - mStarts(k)) And mStarts(k) + 1 < doc.Range.End Then
+            If doc.Range(mStarts(k), mStarts(k) + 1).Text = vbCr Then doc.Range(mStarts(k), mStarts(k) + 1).Delete
+        End If
     Next k
     On Error Resume Next
     If doc.Bookmarks.Exists(BM_ZONE_TOC) Then doc.Bookmarks(BM_ZONE_TOC).Delete
     If doc.Bookmarks.Exists(BM_ZONE_LOT) Then doc.Bookmarks(BM_ZONE_LOT).Delete
     If doc.Bookmarks.Exists(BM_ZONE_LOF) Then doc.Bookmarks(BM_ZONE_LOF).Delete
+    If doc.Bookmarks.Exists(BM_ZONE_LOA) Then doc.Bookmarks(BM_ZONE_LOA).Delete
     If doc.Bookmarks.Exists(BM_SYS_GENERATED_BLOCK) Then doc.Bookmarks(BM_SYS_GENERATED_BLOCK).Delete
     If Err.Number <> 0 Then ModConstants.g_SilentErrors = ModConstants.g_SilentErrors + 1
     Err.Clear
@@ -237,7 +243,8 @@ End Sub
 
 Private Function IsSlotMarker(ByVal pIdx As Long, ByRef markers As MarkerLocations) As Boolean
     IsSlotMarker = (pIdx = markers.ContentStartParaIndex Or pIdx = markers.ContentEndParaIndex Or _
-                    pIdx = markers.ListContentParaIndex Or pIdx = markers.ListTableParaIndex Or pIdx = markers.ListFigureParaIndex)
+                    pIdx = markers.ListContentParaIndex Or pIdx = markers.ListTableParaIndex Or _
+                    pIdx = markers.ListFigureParaIndex Or pIdx = markers.ListAcronymsParaIndex)
 End Function
 
 Public Function DiscoverAndPrepareQuickZones(ByVal doc As Document, ByRef markers As MarkerLocations, _

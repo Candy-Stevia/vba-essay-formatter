@@ -39,6 +39,10 @@ Public Function GetLofHeaderTitle(ByVal lang As String) As String
     If lang = LANG_VI Then GetLofHeaderTitle = ModConstants.Uni("DANH M\u1ee4C H\u00ccNH \u1ea2NH") Else GetLofHeaderTitle = "LIST OF FIGURES"
 End Function
 
+Public Function GetLoaHeaderTitle(ByVal lang As String) As String
+    If lang = LANG_VI Then GetLoaHeaderTitle = ModConstants.Uni("DANH M\u1ee4C T\u1eea VI\u1ebeT T\u1eaeT") Else GetLoaHeaderTitle = "LIST OF ACRONYMS"
+End Function
+
 Public Function GetFigureKeywords() As String
     Dim viFigPrefix As String
     viFigPrefix = "H(?:\u00ec|i)nh(?:\s+(?:\u1ea3nh|v\u1ebd))?|S\u01a1 \u0111\u1ed3|Bi\u1ec3u \u0111\u1ed3|\u0110\u1ed3 th\u1ecb"

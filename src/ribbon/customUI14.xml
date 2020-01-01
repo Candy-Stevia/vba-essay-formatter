@@ -21,6 +21,11 @@
                     screentip="Insert =listFigureHere() (Ch&#x00E8;n th&#x1EBB; =listFigureHere())"
                     supertip="Mark where to generate the List of Figures. (&#x0110;&#x00E1;nh d&#x1EA5;u v&#x1ECB; tr&#x00ED; t&#x1EF1; &#x0111;&#x1ED9;ng t&#x1EA1;o Danh m&#x1EE5;c h&#x00EC;nh.)"
                     onAction="Ribbon_OnInsertMarker"/>
+            <button id="btnInsListAcronyms" label="LOA =listAcronyms() (DM Vi&#x1EBF;t t&#x1EAF;t)"
+                    imageMso="TableIndexes"
+                    screentip="Insert =listAcronyms() (Ch&#x00E8;n th&#x1EBB; =listAcronyms())"
+                    supertip="Mark where to generate the List of Acronyms. (&#x0110;&#x00E1;nh d&#x1EA5;u v&#x1ECB; tr&#x00ED; t&#x1EA1;o Danh m&#x1EE5;c t&#x1EEB; vi&#x1EBF;t t&#x1EAF;t.)"
+                    onAction="Ribbon_OnInsertMarker"/>
             <menuSeparator id="sepMarkers1"/>
             <button id="btnInsContentStart" label="Start =contentStart() (B&#x1EAF;t &#x0111;&#x1EA7;u)"
                     imageMso="StartAfterPrevious"
@@ -105,6 +110,28 @@
                   screentip="Remove =...() Markers (X&#x00F3;a to&#x00E0;n b&#x1ED9; th&#x1EBB; =...())"
                   supertip="Remove technical markers and extra spaces before exporting PDF. Undoable. (X&#x00F3;a s&#x1EA1;ch th&#x1EBB; k&#x1EF9; thu&#x1EAD;t v&#x00E0; kho&#x1EA3;ng tr&#x1EAF;ng th&#x1EEB;a tr&#x01B0;&#x1EDB;c khi xu&#x1EA5;t PDF. C&#x00F3; th&#x1EC3; Undo.)"
                   onAction="Ribbon_OnCleanMarkers"/>
+          <separator id="sepAiPatch"/>
+          <splitButton id="sbAiPatch" size="large">
+            <button id="btnAiPatchMain" label="AI Patch" imageMso="Paste"
+                    screentip="Apply AI Patch from Clipboard (Ch&#x1EA1;y AI Patch t&#x1EEB; Clipboard)"
+                    supertip="Parse AF-PATCH v1 from Clipboard, link APA citations, normalize text, and build List of Acronyms. (&#x0110;&#x1ECD;c AF-PATCH v1 t&#x1EEB; Clipboard, g&#x1EAF;n link tr&#x00ED;ch d&#x1EAB;n APA v&#x00E0; d&#x1EF1;ng DM Vi&#x1EBF;t t&#x1EAF;t.)"
+                    onAction="Ribbon_OnAiPatchClipboard"/>
+            <menu id="mnuAiPatch">
+              <button id="btnAiPatchClip" label="Apply from Clipboard (T&#x1EEB; Clipboard)" imageMso="Paste"
+                      screentip="Apply AI Patch from Clipboard (Ch&#x1EA1;y t&#x1EEB; Clipboard)"
+                      supertip="Read AF-PATCH v1 text from Windows Clipboard with Dry-Run preview. (&#x0110;&#x1ECD;c AF-PATCH v1 t&#x1EEB; Clipboard v&#x00E0; x&#x00E1;c nh&#x1EAD;n Dry-Run.)"
+                      onAction="Ribbon_OnAiPatchClipboard"/>
+              <button id="btnAiPatchFile" label="Apply from File... (T&#x1EEB; File .txt)" imageMso="FileOpen"
+                      screentip="Apply AI Patch from UTF-8 .txt File (Ch&#x1EA1;y t&#x1EEB; File .txt)"
+                      supertip="Select a UTF-8 patch .txt file exported from AI Web Chat. (Ch&#x1ECD;n file .txt ch&#x1EE9;a AF-PATCH v1 t&#x1EEB; AI Web Chat.)"
+                      onAction="Ribbon_OnAiPatchFile"/>
+              <menuSeparator id="sepAiPatch1"/>
+              <button id="btnPreAuditScan" label="Pre-Audit Scan (&#x0110;&#x1EBF;m tr&#x00ED;ch d&#x1EAB;n)" imageMso="FindDialog"
+                      screentip="Count EN &amp; VI APA Citations (&#x0110;&#x1EBF;m l&#x01B0;&#x1EE3;t tr&#x00ED;ch d&#x1EAB;n APA Anh-Vi&#x1EC7;t)"
+                      supertip="Read-only scan of body &amp; table citations and References count, with optional Clipboard summary copy. (Qu&#x00E9;t &#x0111;&#x1EBF;m ch&#x1EC9; &#x0111;&#x1ECD;c to&#x00E0;n th&#x00E2;n b&#x00E0;i v&#x00E0; b&#x1EA3;ng, t&#x00F9;y ch&#x1ECD;n ch&#x00E9;p b&#x00E1;o c&#x00E1;o.)"
+                      onAction="Ribbon_OnPreAuditScan"/>
+            </menu>
+          </splitButton>
         </group>
       </tab>
     </tabs>

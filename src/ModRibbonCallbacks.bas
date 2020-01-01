@@ -278,6 +278,18 @@ Public Sub Ribbon_OnCleanMarkers(Optional ByVal control As Object = Nothing)
     RunCleanMarkers
 End Sub
 
+Public Sub Ribbon_OnAiPatchClipboard(Optional ByVal control As Object = Nothing)
+    ModPatchEngine.RunAiPatchClipboard
+End Sub
+
+Public Sub Ribbon_OnAiPatchFile(Optional ByVal control As Object = Nothing)
+    ModPatchEngine.RunAiPatchFile
+End Sub
+
+Public Sub Ribbon_OnPreAuditScan(Optional ByVal control As Object = Nothing)
+    ModCitationScan.RunPreAuditScan
+End Sub
+
 Public Sub Ribbon_OnInsertMarker(ByVal control As Object)
     If control Is Nothing Then
         Exit Sub
@@ -296,6 +308,8 @@ Public Sub Ribbon_OnInsertMarker(ByVal control As Object)
             ModMarkerInserter.InsertMarkerAtSelection ActiveDocument, MARKER_LIST_TABLE
         Case "btnInsListFigure"
             ModMarkerInserter.InsertMarkerAtSelection ActiveDocument, MARKER_LIST_FIGURE
+        Case "btnInsListAcronyms"
+            ModMarkerInserter.InsertMarkerAtSelection ActiveDocument, MARKER_LIST_ACRONYMS
     End Select
 End Sub
 

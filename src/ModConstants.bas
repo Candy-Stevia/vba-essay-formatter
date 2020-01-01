@@ -12,13 +12,16 @@ Option Explicit
 Public Const BM_PREFIX_TOC As String = "bm_toc_"
 Public Const BM_PREFIX_TBL As String = "bm_tbl_"
 Public Const BM_PREFIX_FIG As String = "bm_fig_"
+Public Const BM_PREFIX_REF As String = "bm_ref_"
 Public Const BM_SYS_GENERATED_BLOCK As String = "bm_sys_generated_block"
 Public Const BM_ZONE_TOC As String = "bm_zone_toc"
 Public Const BM_ZONE_LOT As String = "bm_zone_lot"
 Public Const BM_ZONE_LOF As String = "bm_zone_lof"
+Public Const BM_ZONE_LOA As String = "bm_zone_loa"
 Public Const BM_TOC_HEADER As String = "bm_toc_header"
 Public Const BM_LOT_HEADER As String = "bm_lot_header"
 Public Const BM_LOF_HEADER As String = "bm_lof_header"
+Public Const BM_LOA_HEADER As String = "bm_loa_header"
 
 ' --- Engine Execution Modes ---
 Public Enum EngineExecutionMode
@@ -39,6 +42,7 @@ Public Const MARKER_CONTENT_END As String = "=contentEnd()"
 Public Const MARKER_LIST_CONTENT As String = "=listContent()"
 Public Const MARKER_LIST_TABLE As String = "=listTableHere()"
 Public Const MARKER_LIST_FIGURE As String = "=listFigureHere()"
+Public Const MARKER_LIST_ACRONYMS As String = "=listAcronyms()"
 
 ' --- Typography Defaults ---
 Public Const DEFAULT_FONT_NAME As String = "Times New Roman"
@@ -135,7 +139,7 @@ Public Function GetPatternLevel4() As String
     GetPatternLevel4 = "^(\d+\.\d+\.\d+\.\d+\.)\s+(.+)$"
 End Function
 Public Function GetPatternMarker() As String
-    GetPatternMarker = "^=(contentStart|contentEnd|listContent|listTableHere|listFigureHere)\(\)\s*$"
+    GetPatternMarker = "^=(contentStart|contentEnd|listContent|listTableHere|listFigureHere|listAcronyms)\(\)\s*$"
 End Function
 
 ' --- Measurement Utilities ---

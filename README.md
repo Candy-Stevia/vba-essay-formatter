@@ -14,7 +14,7 @@ It doesn't use AI inside Word, so it runs strictly on hard-coded rules, regexes,
 
 ## How to Install & Uninstall (Windows Only)
 
-1. Go to the **[Releases](../../releases)** page and download **`AcademicFormatter_v1.0.4.zip`**.
+1. Go to the **[Releases](../../releases)** page and download **`AcademicFormatter_v1.0.5.zip`**.
 2. Extract the zip folder anywhere on your computer.
 3. Close all open Microsoft Word windows.
 4. Double-click **`install-or-update.bat`** (this checks GitHub for a newer `.dotm` when online, falls back to the local file if offline/blocked, unblocks Windows security flags, and copies `AcademicFormatter.dotm` into your Word `STARTUP` folder).

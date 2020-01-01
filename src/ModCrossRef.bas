@@ -8,7 +8,7 @@ Option Explicit
 ' Architecture: Academic Document Format Engine (v1.0.1)
 ' ==============================================================================
 
-Private Function ResolveLinkColor(ByVal colorId As String) As Long
+Public Function ResolveLinkColor(ByVal colorId As String) As Long
     ResolveLinkColor = RGB(43, 108, 176)
     If colorId = "xref_orange" Then ResolveLinkColor = RGB(197, 90, 17)
     If colorId = "xref_red" Then ResolveLinkColor = RGB(185, 28, 28)
@@ -316,6 +316,7 @@ Public Sub ApplyCrossReferences(ByVal doc As Document, ByRef markers As MarkerLo
     If dictBm.Count = 0 Then
 ClearOnly:
         ClearOldCrossRefHyperlinks doc, bodyStartPos
+        If colorId <> "xref_off" Then ModPatchMatcher.SyncCitationLinkColors doc, ResolveLinkColor(colorId)
         Exit Sub
     End If
     Dim refFlags() As Boolean, inRefZone As Boolean, sIdx As Long, tType As Long
@@ -390,5 +391,6 @@ ClearOnly:
             Next mIdx
         End If
     Next sIdx
+    ModPatchMatcher.SyncCitationLinkColors doc, ResolveLinkColor(colorId)
 End Sub
 ' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

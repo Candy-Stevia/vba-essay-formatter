@@ -19,6 +19,8 @@ Public Type MarkerLocations
     ListTableParaIndex As Long
     HasListFigure As Boolean
     ListFigureParaIndex As Long
+    HasListAcronyms As Boolean
+    ListAcronymsParaIndex As Long
 End Type
 
 ' --- Marker Scanner & Validator ---
@@ -27,23 +29,11 @@ Public Function ScanMarkers(ByVal doc As Document, _
                             ByRef outMarkers As MarkerLocations, _
                             ByRef outErrorMessage As String) As Boolean
     Dim i As Long, rawText As String, cleanText As String
-    Dim listMarkerNames() As String
-    Dim listMarkerIndices() As Long
-    Dim listMarkerCount As Long
-    Dim listMarkerCap As Long
-    
+    Dim listMarkerNames() As String, listMarkerIndices() As Long
+    Dim listMarkerCount As Long, listMarkerCap As Long
+    Dim blankM As MarkerLocations
+    outMarkers = blankM
     outErrorMessage = ""
-    outMarkers.HasContentStart = False
-    outMarkers.ContentStartParaIndex = 0
-    outMarkers.HasContentEnd = False
-    outMarkers.ContentEndParaIndex = 0
-    outMarkers.HasListContent = False
-    outMarkers.ListContentParaIndex = 0
-    outMarkers.HasListTable = False
-    outMarkers.ListTableParaIndex = 0
-    outMarkers.HasListFigure = False
-    outMarkers.ListFigureParaIndex = 0
-    
     listMarkerCount = 0
     listMarkerCap = 16
     ReDim listMarkerNames(1 To listMarkerCap)
@@ -117,6 +107,14 @@ Public Function ScanMarkers(ByVal doc As Document, _
                 outMarkers.HasListFigure = True
                 outMarkers.ListFigureParaIndex = i
                 RecordListMarker listMarkerNames, listMarkerIndices, listMarkerCount, listMarkerCap, "=listFigureHere()", i
+            Case "=listacronyms()"
+                If Not ValidateMarkerCandidate(p, "=listAcronyms()", i, outMarkers.HasListAcronyms, outMarkers.ListAcronymsParaIndex, outErrorMessage) Then
+                    ScanMarkers = False
+                    Exit Function
+                End If
+                outMarkers.HasListAcronyms = True
+                outMarkers.ListAcronymsParaIndex = i
+                RecordListMarker listMarkerNames, listMarkerIndices, listMarkerCount, listMarkerCap, "=listAcronyms()", i
         End Select
     Next p
     
@@ -219,7 +217,7 @@ Public Sub HighlightMarkers(ByVal doc As Document)
         Set pRng = p.Range
         cleanText = LCase$(Trim$(Replace(Replace(Replace(pRng.Text, vbCr, ""), Chr(7), ""), Chr(11), "")))
         Select Case cleanText
-            Case "=contentstart()", "=contentend()", "=listcontent()", "=listtablehere()", "=listfigurehere()"
+            Case "=contentstart()", "=contentend()", "=listcontent()", "=listtablehere()", "=listfigurehere()", "=listacronyms()"
                 If Not CBool(pRng.Information(12)) Then
                     pRng.HighlightColorIndex = 7 ' wdYellow = 7
                 End If
