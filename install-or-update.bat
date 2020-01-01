@@ -200,6 +200,21 @@ if ($srcHash -ne $dstHash) {
 Write-Host "[OK] Installed to: $dest" -ForegroundColor Green
 Write-Host "[OK] Da cai dat vao: $dest" -ForegroundColor Green
 
+try {
+    foreach ($ov in @('16.0','15.0')) {
+        $disKey = "HKCU:\Software\Microsoft\Office\$ov\Word\Resiliency\DisabledItems"
+        if (Test-Path $disKey) {
+            $props = Get-ItemProperty $disKey -ErrorAction SilentlyContinue
+            foreach ($pr in $props.PSObject.Properties) {
+                if ($pr.Name -notlike 'PS*') {
+                    $txt = [System.Text.Encoding]::Unicode.GetString([byte[]]$pr.Value) -replace "`0", ''
+                    if ($txt -match 'AcademicFormatter\.dotm') { Remove-ItemProperty -Path $disKey -Name $pr.Name -ErrorAction SilentlyContinue }
+                }
+            }
+        }
+    }
+} catch {}
+
 $vbaWarn = $null
 foreach ($sk in @("HKCU:\Software\Policies\Microsoft\Office\$verKey\Word\Security", "HKCU:\Software\Microsoft\Office\$verKey\Word\Security")) {
     if (Test-Path $sk) {

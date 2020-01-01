@@ -24,25 +24,32 @@ Private Function CanonicalKeyword(ByVal rawKw As String, ByRef outKind As String
     Dim k As String
     k = LCase$(Trim$(rawKw))
     Select Case k
-        Case "table": outKind = "TBL": CanonicalKeyword = "Table"
-        Case ModConstants.Uni("b\u1ea3ng"), "bang": outKind = "TBL": CanonicalKeyword = ModConstants.Uni("B\u1ea3ng")
-        Case "figure": outKind = "FIG": CanonicalKeyword = "Figure"
-        Case "fig.", "fig"
+        Case "table", ModConstants.Uni("b\u1ea3ng"), "bang"
+            outKind = "TBL"
+            If k = "table" Then CanonicalKeyword = "Table" Else CanonicalKeyword = ModConstants.Uni("B\u1ea3ng")
+        Case "figure", "fig.", "fig", "chart", "diagram", ModConstants.Uni("h\u00ecnh"), "hinh", _
+             ModConstants.Uni("s\u01a1 \u0111\u1ed3"), ModConstants.Uni("bi\u1ec3u \u0111\u1ed3"), ModConstants.Uni("\u0111\u1ed3 th\u1ecb")
             outKind = "FIG"
-            If Right$(k, 1) = "." Then CanonicalKeyword = "Fig." Else CanonicalKeyword = "Fig"
-        Case "chart": outKind = "FIG": CanonicalKeyword = "Chart"
-        Case "diagram": outKind = "FIG": CanonicalKeyword = "Diagram"
-        Case ModConstants.Uni("h\u00ecnh"), "hinh": outKind = "FIG": CanonicalKeyword = ModConstants.Uni("H\u00ecnh")
-        Case ModConstants.Uni("s\u01a1 \u0111\u1ed3"): outKind = "FIG": CanonicalKeyword = ModConstants.Uni("S\u01a1 \u0111\u1ed3")
-        Case ModConstants.Uni("bi\u1ec3u \u0111\u1ed3"): outKind = "FIG": CanonicalKeyword = ModConstants.Uni("Bi\u1ec3u \u0111\u1ed3")
-        Case ModConstants.Uni("\u0111\u1ed3 th\u1ecb"): outKind = "FIG": CanonicalKeyword = ModConstants.Uni("\u0110\u1ed3 th\u1ecb")
-        Case "chapter": outKind = "CHAP": CanonicalKeyword = "Chapter"
-        Case ModConstants.Uni("ch\u01b0\u01a1ng"): outKind = "CHAP": CanonicalKeyword = ModConstants.Uni("Ch\u01b0\u01a1ng")
-        Case "appendix": outKind = "APP": CanonicalKeyword = "Appendix"
-        Case ModConstants.Uni("ph\u1ee5 l\u1ee5c"): outKind = "APP": CanonicalKeyword = ModConstants.Uni("Ph\u1ee5 l\u1ee5c")
-        Case "section": outKind = "SEC": CanonicalKeyword = "Section"
-        Case ModConstants.Uni("m\u1ee5c"): outKind = "SEC": CanonicalKeyword = ModConstants.Uni("M\u1ee5c")
-        Case ModConstants.Uni("ph\u1ea7n"): outKind = "SEC": CanonicalKeyword = ModConstants.Uni("Ph\u1ea7n")
+            If k = "figure" Then CanonicalKeyword = "Figure"
+            If k = "fig." Then CanonicalKeyword = "Fig."
+            If k = "fig" Then CanonicalKeyword = "Fig"
+            If k = "chart" Then CanonicalKeyword = "Chart"
+            If k = "diagram" Then CanonicalKeyword = "Diagram"
+            If k = ModConstants.Uni("h\u00ecnh") Or k = "hinh" Then CanonicalKeyword = ModConstants.Uni("H\u00ecnh")
+            If k = ModConstants.Uni("s\u01a1 \u0111\u1ed3") Then CanonicalKeyword = ModConstants.Uni("S\u01a1 \u0111\u1ed3")
+            If k = ModConstants.Uni("bi\u1ec3u \u0111\u1ed3") Then CanonicalKeyword = ModConstants.Uni("Bi\u1ec3u \u0111\u1ed3")
+            If k = ModConstants.Uni("\u0111\u1ed3 th\u1ecb") Then CanonicalKeyword = ModConstants.Uni("\u0110\u1ed3 th\u1ecb")
+        Case "chapter", ModConstants.Uni("ch\u01b0\u01a1ng")
+            outKind = "CHAP"
+            If k = "chapter" Then CanonicalKeyword = "Chapter" Else CanonicalKeyword = ModConstants.Uni("Ch\u01b0\u01a1ng")
+        Case "appendix", ModConstants.Uni("ph\u1ee5 l\u1ee5c")
+            outKind = "APP"
+            If k = "appendix" Then CanonicalKeyword = "Appendix" Else CanonicalKeyword = ModConstants.Uni("Ph\u1ee5 l\u1ee5c")
+        Case "section", ModConstants.Uni("m\u1ee5c"), ModConstants.Uni("ph\u1ea7n")
+            outKind = "SEC"
+            If k = "section" Then CanonicalKeyword = "Section"
+            If k = ModConstants.Uni("m\u1ee5c") Then CanonicalKeyword = ModConstants.Uni("M\u1ee5c")
+            If k = ModConstants.Uni("ph\u1ea7n") Then CanonicalKeyword = ModConstants.Uni("Ph\u1ea7n")
     End Select
 End Function
 
