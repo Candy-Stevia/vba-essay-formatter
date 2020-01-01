@@ -179,6 +179,8 @@ Public Sub RunEngine(Optional ByVal targetDoc As Document = Nothing, Optional By
         If g_EnableDiag Then
             ModDiag.DiagLog "Step 9: ExecuteRecord1 Completed"
         End If
+        ModProgress.ProgressSetPhase ModConstants.Uni("Linking Cross-Refs (G\u1EAFn link tham chi\u1EBFu)"), 62#, 3#
+        ModCrossRef.ApplyCrossReferences doc, markers, snapshots, totalCount, g_Config.CrossRefColor
     Else
         EnsureTargetBookmarks doc, snapshots, totalCount
     End If

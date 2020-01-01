@@ -16,6 +16,7 @@ Public Type EngineRibbonConfig
     IsFooterPage As Boolean
     TocDepth As Long
     ListLang As String
+    CrossRefColor As String
 End Type
 
 Public g_Config As EngineRibbonConfig
@@ -33,6 +34,7 @@ Public Sub EnsureConfigInitialized()
         g_Config.IsFooterPage = True
         g_Config.TocDepth = 4
         g_Config.ListLang = "lang_vi"
+        g_Config.CrossRefColor = "xref_blue"
         g_Initialized = True
     End If
 End Sub
@@ -175,6 +177,22 @@ End Function
 
 Public Sub Ribbon_OnLangChange(ByVal control As Object, ByVal id As String, ByVal index As Long)
     SetListLanguage id
+End Sub
+
+Public Sub Ribbon_GetCrossRefColor(ByVal control As Object, ByRef itemID As Variant)
+    EnsureConfigInitialized
+    If Len(g_Config.CrossRefColor) = 0 Then g_Config.CrossRefColor = "xref_blue"
+    itemID = g_Config.CrossRefColor
+End Sub
+
+Public Sub Ribbon_OnCrossRefColorChange(ByVal control As Object, ByVal id As String, ByVal index As Long)
+    EnsureConfigInitialized
+    g_Config.CrossRefColor = id
+End Sub
+
+Public Sub SetCrossRefColor(ByVal colorId As String)
+    EnsureConfigInitialized
+    g_Config.CrossRefColor = colorId
 End Sub
 
 Public Sub RunEngineFull()
