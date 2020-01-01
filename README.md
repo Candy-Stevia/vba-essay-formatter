@@ -8,14 +8,13 @@ It doesn't use AI inside Word, so it runs strictly on hard-coded rules, regexes,
 
 - **Consistent Essay & Thesis Styling:** Applies your chosen font, size, line spacing, and first-line indent to body paragraphs, while formatting Headings (Levels 1–4), Table/Figure captions, and Source/Note lines according to strict structural rules.
 - **Deterministic TOC, LOT & LOF:** Generates Table of Contents, List of Tables, and List of Figures using internal bookmarks and hyperlinks, syncing page numbers (including Roman numerals for front matter). Includes a **Quick Update** button to refresh lists later if you need to edit the content.
-- **Automatic Cross-Reference Hyperlinks (v1.0.1):** Automatically converts inline citations (`Table 1.1`, `Bảng 2.1`, `Figure 3.2`, `Chart`, `Diagram`, `Hình`, `Sơ đồ`, `Biểu đồ`, `Đồ thị`, `Chapter`, `Chương`, `Section`, `Mục`, `Phần`, `Appendix A`, `Phụ lục`) into clean, non-underlined clickable hyperlinks (Word & exported PDF) pointing to their bookmarked headings or captions, with customizable link colors on the Ribbon (`Ref Link`).
 - **LaTeX-to-Word Math Converter:** Turns raw LaTeX (`$...$`, `$$...$$`, `\(...\)`, `\[...\]`, basic matrices, `align`, `cases`, etc.) copied from chatbots into native Word equations (`OMath`). It shades converted math in light colors so you can review them, and lets you toggle back to raw LaTeX to fix typos.
 - **Single-Step Undo:** Everything runs inside one Word Undo record—if you don't like the result, hit **`Ctrl + Z` once** to revert the whole document.
 - **Automatic Crash Backup:** Before modifying anything, the tool automatically creates a physical backup copy (`_crash_backup_...`) in the same folder. If everything finishes cleanly, the backup deletes itself; if Word crashes or hits an unexpected error, the backup stays untouched on your drive.
 
 ## How to Install & Uninstall (Windows Only)
 
-1. Go to the **[Releases](../../releases)** page and download **`AcademicFormatter_v1.0.1.zip`**.
+1. Go to the **[Releases](../../releases)** page and download **`AcademicFormatter_v1.0.2.zip`**.
 2. Extract the zip folder anywhere on your computer.
 3. Close all open Microsoft Word windows.
 4. Double-click **`Install.bat`** (this unblocks Windows security flags and copies `AcademicFormatter.dotm` into your Word `STARTUP` folder).

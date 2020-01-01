@@ -66,9 +66,21 @@ Public Function GetPatternLevel1() As String
                                "(danh m\u1ee5c )?t\u00e0i li\u1ec7u tham kh\u1ea3o|" & _
                                "(danh m\u1ee5c )?(c\u00e1c )?(t\u1eeb|ch\u1eef) vi\u1ebft t\u1eaft|" & _
                                "danh m\u1ee5c k\u00fd hi\u1ec7u v\u00e0 ch\u1eef vi\u1ebft t\u1eaft|" & _
-                               "ch\u01b0\u01a1ng\s+[A-Za-z0-9]+[:\.]\s*.+|ph\u1ee5 l\u1ee5c(\s+[A-Za-z0-9]+)?([:\.]\s*.+)?")
+                               "ch\u01b0\u01a1ng\s+[A-Za-z0-9]+[:\.]\s*.+|ph\u1ea7n\s+[A-Za-z0-9]+[:\.]\s*.+|ph\u1ee5 l\u1ee5c(\s+[A-Za-z0-9]+)?([:\.]\s*.+)?")
     
     GetPatternLevel1 = "^(" & enParts & "|" & viParts & ")$"
+End Function
+
+Public Function IsRomanLevel1(ByVal s As String) As Boolean
+    Dim t As String
+    t = Trim$(s)
+    If Len(t) < 4 Then Exit Function
+    Dim regEx As Object
+    Set regEx = CreateObject("VBScript.RegExp")
+    regEx.IgnoreCase = False
+    regEx.Global = False
+    regEx.Pattern = "^(X{1,3}(?:IX|IV|V?I{0,3})|IX|IV|V?I{1,3}|V)[\.:]\s+\S.*$"
+    IsRomanLevel1 = regEx.Test(t)
 End Function
 
 Public Function GetPatternManualList() As String

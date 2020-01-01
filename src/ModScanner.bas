@@ -192,7 +192,7 @@ Public Function ScanDocumentSnapshot(ByVal doc As Document, _
                 Else
                     outSnapshots(i).ElementType = ElementTypeLevel1
                 End If
-            ElseIf Matches(regEx, patL1, clean) Then
+            ElseIf Matches(regEx, patL1, clean) Or ModLocale.IsRomanLevel1(clean) Then
                 outSnapshots(i).ElementType = ElementTypeLevel1
             ElseIf inContentZone Or inPostZone Then
                 If Matches(regEx, patTbl, clean) Then

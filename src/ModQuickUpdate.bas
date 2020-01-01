@@ -119,7 +119,7 @@ Private Sub ScanAndFormatQuickItems(ByVal doc As Document, ByRef markers As Mark
                     If Not slots(2).Found Then tType = ElementTypeLevel1
                 ElseIf MatchesPat(regEx, patLof, clean) Then
                     If Not slots(3).Found Then tType = ElementTypeLevel1
-                ElseIf MatchesPat(regEx, patL1, clean) Then
+                ElseIf MatchesPat(regEx, patL1, clean) Or ModLocale.IsRomanLevel1(clean) Then
                     tType = ElementTypeLevel1
                 ElseIf inContent Or inPost Then
                     If MatchesPat(regEx, patTbl, clean) Then

@@ -15,6 +15,20 @@ End Sub
 
 Public Sub CapPrefixAndContent(ByVal doc As Document, ByVal rng As Range, ByVal sep As String)
     CapChar doc, rng.Start
+    If ModLocale.IsRomanLevel1(rng.Text) Then
+        Dim rPos As Long, rLen As Long, rCh As String
+        rLen = Len(rng.Text)
+        For rPos = 1 To rLen
+            rCh = Mid$(rng.Text, rPos, 1)
+            If rCh = "." Or rCh = ":" Then
+                Do While rPos + 1 <= rLen And Mid$(rng.Text, rPos + 1, 1) = " "
+                    rPos = rPos + 1
+                Loop
+                If rPos < rLen Then CapChar doc, rng.Start + rPos
+                Exit Sub
+            End If
+        Next rPos
+    End If
     Dim reg As Object, mc As Object, matchLen As Long
     Set reg = CreateObject("VBScript.RegExp")
     reg.IgnoreCase = True
