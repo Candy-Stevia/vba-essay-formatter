@@ -15,10 +15,19 @@ Public Sub InsertListHeader(ByVal doc As Document, ByVal pIdx As Long, ByVal tit
     r.HighlightColorIndex = 0
     r.InsertBefore title & vbCr
     Set r = doc.Paragraphs(pIdx).Range
+    ModFormatSingle.EnsureOutlineLevelDetachHeading doc, r, 1
+    On Error Resume Next
+    r.ListFormat.RemoveNumbers
+    Err.Clear
+    On Error GoTo 0
     r.HighlightColorIndex = 0
     r.Font.Name = fontName
     r.Font.Size = fontSize
     r.Font.Bold = True
+    r.Font.Italic = False
+    r.Font.Underline = 0
+    r.Font.Color = -16777216
+    r.Font.AllCaps = False
     If Not ModCustomProfile.IsL1UpperDisabled() Then
         r.Case = 1
     End If
@@ -26,7 +35,6 @@ Public Sub InsertListHeader(ByVal doc As Document, ByVal pIdx As Long, ByVal tit
     r.ParagraphFormat.FirstLineIndent = 0
     r.ParagraphFormat.LeftIndent = 0
     r.ParagraphFormat.KeepWithNext = True
-    ModFormatSingle.SafeSetOutlineLevel r, 1
     ModCustomProfile.ApplyCustomStyleOverrides doc, r, ElementTypeLevel1, False
     AddBookmark doc, bm, r
 End Sub
@@ -66,9 +74,21 @@ Public Function GetFreshTitleText(ByVal doc As Document, ByVal bmName As String,
     End If
     If Len(bmName) > 0 Then
         If doc.Bookmarks.Exists(bmName) Then
-            Dim t As String
-            t = CleanListTitle(doc.Bookmarks(bmName).Range.Text)
+            Dim bmRng As Range, t As String, lType As Long, listPfx As String
+            Set bmRng = doc.Bookmarks(bmName).Range
+            t = CleanListTitle(bmRng.Text)
             If Len(t) > 0 Then
+                Err.Clear
+                lType = bmRng.ListFormat.ListType
+                If Err.Number = 0 And lType >= 3 Then
+                    listPfx = Trim$(bmRng.ListFormat.ListString)
+                    If Err.Number = 0 And Len(listPfx) > 0 Then
+                        If Left$(t, Len(listPfx)) <> listPfx Then
+                            t = listPfx & " " & t
+                        End If
+                    End If
+                End If
+                Err.Clear
                 GetFreshTitleText = t
                 Exit Function
             End If

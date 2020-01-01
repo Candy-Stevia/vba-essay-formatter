@@ -7,13 +7,25 @@ Private g_MathSeqCached As Long
 Private g_HasSeqCache As Boolean
 Private g_SeqDocPtr As LongPtr
 
+Public Function IsAllAsciiDigits(ByVal s As String) As Boolean
+    Dim i As Long, ch As Long
+    If Len(s) = 0 Then Exit Function
+    For i = 1 To Len(s)
+        ch = AscW(Mid$(s, i, 1))
+        If ch < 48 Or ch > 57 Then Exit Function
+    Next i
+    IsAllAsciiDigits = True
+End Function
+
 Private Sub UpdateMaxSeq(ByVal itemName As String, ByRef curSeq As Long)
     Dim suffix As String, bmNum As Long
     If Left$(itemName, 8) = "bm_math_" Then
         suffix = Mid$(itemName, InStrRev(itemName, "_") + 1)
-        If Len(suffix) > 0 And Len(suffix) <= 9 And IsNumeric(suffix) Then
-            bmNum = CLng(suffix)
-            If bmNum > curSeq Then curSeq = bmNum
+        If Len(suffix) > 0 And Len(suffix) <= 9 Then
+            If IsAllAsciiDigits(suffix) Then
+                bmNum = CLng(suffix)
+                If bmNum > curSeq Then curSeq = bmNum
+            End If
         End If
     End If
 End Sub
@@ -87,6 +99,43 @@ Public Sub ApplyPastelShading(ByVal rng As Range, ByVal rgbColor As Long)
     rng.Shading.BackgroundPatternColor = rgbColor
     On Error GoTo 0
 End Sub
+Public Function IsMathPastelColor(ByVal col As Long) As Boolean
+    IsMathPastelColor = (col = ModMathScanner.COLOR_PASTEL_AMBER Or col = ModMathScanner.COLOR_PASTEL_PINK Or col = ModMathScanner.COLOR_PASTEL_MINT Or col = ModMathScanner.COLOR_PASTEL_CYAN)
+End Function
+Public Sub ClearOrphanedMathShading(ByVal doc As Document)
+    Dim p As Paragraph, w As Range, ch As Range
+    Dim docCol As Long, pCol As Long, wCol As Long, cCol As Long
+    If doc Is Nothing Then Exit Sub
+    On Error Resume Next
+    docCol = doc.Content.Shading.BackgroundPatternColor
+    If Err.Number = 0 And docCol <> 9999999 And Not IsMathPastelColor(docCol) Then
+        On Error GoTo 0
+        Exit Sub
+    End If
+    Err.Clear
+    For Each p In doc.Paragraphs
+        pCol = p.Range.Shading.BackgroundPatternColor
+        If IsMathPastelColor(pCol) Then
+            ApplyPastelShading p.Range, ModMathScanner.COLOR_AUTO_CLEAR
+        ElseIf pCol = 9999999 Then
+            For Each w In p.Range.Words
+                wCol = w.Shading.BackgroundPatternColor
+                If IsMathPastelColor(wCol) Then
+                    ApplyPastelShading w, ModMathScanner.COLOR_AUTO_CLEAR
+                ElseIf wCol = 9999999 Then
+                    For Each ch In w.Characters
+                        cCol = ch.Shading.BackgroundPatternColor
+                        If IsMathPastelColor(cCol) Then
+                            ApplyPastelShading ch, ModMathScanner.COLOR_AUTO_CLEAR
+                        End If
+                    Next ch
+                End If
+            Next w
+        End If
+    Next p
+    Err.Clear
+    On Error GoTo 0
+End Sub
 Public Sub NotifyUser(ByVal msg As String)
     If Application.DisplayAlerts <> 0 Then
         ModUI.MsgBoxW msg, vbExclamation, ModConstants.Uni("Notice (Th\u00f4ng b\u00e1o)")
@@ -95,35 +144,47 @@ End Sub
 
 Public Function FindEnclosingMathBookmark(ByVal doc As Document, ByVal selStart As Long, ByVal selEnd As Long, ByRef outBmName As String, ByRef outBmKind As Long) As Boolean
     Dim bm As Bookmark, bStart As Long, bEnd As Long, ovLen As Long
+    Dim scanStart As Long, scanEnd As Long, docEnd As Long
     Dim bestOverlap As Long, bestDist As Long, kind As Long, bestKind As Long, bestBm As String, isOverlapping As Boolean
     outBmName = ""
     outBmKind = ModMathScanner.BM_KIND_NONE
     bestOverlap = -1
     bestDist = 999999
-    For Each bm In doc.Bookmarks
+    docEnd = doc.Range.End
+    scanStart = selStart - 1
+    If scanStart < 0 Then scanStart = 0
+    If scanStart > docEnd Then scanStart = docEnd
+    scanEnd = selEnd + 1
+    If scanEnd > docEnd Then scanEnd = docEnd
+    If scanEnd < scanStart Then scanEnd = scanStart
+    For Each bm In doc.Range(scanStart, scanEnd).Bookmarks
         If Left$(bm.Name, 8) = "bm_math_" Then
-            bStart = bm.Range.Start
-            bEnd = bm.Range.End
-            If selEnd > selStart Then isOverlapping = (selStart < bEnd And selEnd > bStart) Else isOverlapping = (selStart >= bStart And selEnd <= bEnd)
-            If isOverlapping Then
-                kind = ModMathScanner.BM_KIND_OMATH
-                If Left$(bm.Name, 13) = "bm_math_pink_" Then
-                    kind = ModMathScanner.BM_KIND_PINK
-                ElseIf Left$(bm.Name, 12) = "bm_math_src_" Then
-                    kind = ModMathScanner.BM_KIND_SRC
-                End If
-                If selStart >= bStart And selEnd <= bEnd Then
-                    outBmName = bm.Name
-                    outBmKind = kind
-                    FindEnclosingMathBookmark = True
-                    Exit Function
-                End If
-                ovLen = IIf(bEnd < selEnd, bEnd, selEnd) - IIf(bStart > selStart, bStart, selStart)
-                If ovLen > bestOverlap Or (ovLen = bestOverlap And (bEnd - bStart) < bestDist) Then
-                    bestOverlap = ovLen
-                    bestDist = bEnd - bStart
-                    bestBm = bm.Name
-                    bestKind = kind
+            If bm.StoryType = 1 Then
+                bStart = bm.Range.Start
+                bEnd = bm.Range.End
+                If bEnd > bStart Then
+                    If selEnd > selStart Then isOverlapping = (selStart < bEnd And selEnd > bStart) Else isOverlapping = (selStart >= bStart And selEnd <= bEnd)
+                    If isOverlapping Then
+                        kind = ModMathScanner.BM_KIND_OMATH
+                        If Left$(bm.Name, 13) = "bm_math_pink_" Then
+                            kind = ModMathScanner.BM_KIND_PINK
+                        ElseIf Left$(bm.Name, 12) = "bm_math_src_" Then
+                            kind = ModMathScanner.BM_KIND_SRC
+                        End If
+                        If selStart >= bStart And selEnd <= bEnd Then
+                            outBmName = bm.Name
+                            outBmKind = kind
+                            FindEnclosingMathBookmark = True
+                            Exit Function
+                        End If
+                        ovLen = IIf(bEnd < selEnd, bEnd, selEnd) - IIf(bStart > selStart, bStart, selStart)
+                        If ovLen > bestOverlap Or (ovLen = bestOverlap And (bEnd - bStart) < bestDist) Then
+                            bestOverlap = ovLen
+                            bestDist = bEnd - bStart
+                            bestBm = bm.Name
+                            bestKind = kind
+                        End If
+                    End If
                 End If
             End If
         End If
@@ -163,20 +224,24 @@ Private Function IsDomPosEscaped(ByVal doc As Document, ByVal pStart As Long, By
     Loop
     IsDomPosEscaped = (slashCount Mod 2 = 1)
 End Function
-Public Sub MarkSpanPink(ByVal doc As Document, ByVal rng As Range, ByVal seq As Long, ByVal varText As String)
+Public Sub MarkSpanPink(ByVal doc As Document, ByVal rng As Range, ByVal seq As Long, ByVal varText As String, Optional ByVal isBlock As Boolean = False)
     Dim idStr As String
-    If Right$(rng.Text, 1) = Chr(7) Then
-        ModMathInline.TrimTrailingDomMarks rng
-    End If
+    ModMathInline.TrimTrailingDomMarks rng
     idStr = Format$(seq, "00000")
     ApplyPastelShading rng, ModMathScanner.COLOR_PASTEL_PINK
     doc.Bookmarks.Add "bm_math_pink_" & idStr, rng
     SetDocVariable doc, "bm_math_" & idStr, varText
+    SetDocVariable doc, "bm_math_" & idStr & "_isblock", IIf(isBlock, "1", "0")
 End Sub
 Public Function InferIsBlock(ByVal rawLatex As String, ByVal doc As Document, ByVal idStr As String) As Boolean
-    If Left$(rawLatex, 2) = "$$" Or Left$(rawLatex, 2) = "\[" Or (Left$(rawLatex, 6) = "\begin" And Left$(rawLatex, 2) <> "\(") Then
+    Dim s As String
+    s = rawLatex
+    Do While Len(s) > 0 And (Left$(s, 1) = " " Or Left$(s, 1) = vbTab Or Left$(s, 1) = vbCr Or Left$(s, 1) = Chr(11))
+        s = Mid$(s, 2)
+    Loop
+    If Left$(s, 2) = "$$" Or Left$(s, 2) = "\[" Or Left$(s, 7) = "\begin{" Then
         InferIsBlock = True
-    ElseIf Left$(rawLatex, 1) = "$" Or Left$(rawLatex, 2) = "\(" Then
+    ElseIf Left$(s, 1) = "$" Or Left$(s, 2) = "\(" Then
         InferIsBlock = False
     ElseIf Len(idStr) > 0 Then
         InferIsBlock = (GetDocVariable(doc, "bm_math_" & idStr & "_isblock") = "1")
@@ -282,9 +347,15 @@ Public Sub FindDollarPairsDom(ByVal doc As Document, ByVal p As Paragraph, ByRef
                         Set candRng = doc.Range(openStart, fRng.End)
                         If candRng.OMaths.Count = 0 And candRng.Fields.Count = 0 And Len(Trim$(doc.Range(openStart + 1, fRng.Start).Text)) > 0 Then
                             AppendPairUnique outStarts, outEnds, outPairCount, openStart, fRng.End
+                            hasOpen = False
+                            openStart = 0
+                        ElseIf CheckOpeningDollarDom(doc, fRng.End, limit, cAfter) Then
+                            openStart = fRng.Start
+                            hasOpen = True
+                        Else
+                            hasOpen = False
+                            openStart = 0
                         End If
-                        hasOpen = False
-                        openStart = 0
                     ElseIf CheckOpeningDollarDom(doc, fRng.End, limit, cAfter) Then
                         openStart = fRng.Start
                         hasOpen = True

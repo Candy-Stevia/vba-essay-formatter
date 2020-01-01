@@ -8,15 +8,115 @@ Option Explicit
 ' Architecture: 100% 7-bit ASCII, 1 statement per line (vba_lint compliant)
 ' ==============================================================================
 
-Private Function ParseFont(ByVal fontMode As String) As Long
+Private Function IsEmptyAstNode(ByVal nd As Long) As Boolean
+    If nd <= 0 Then
+        IsEmptyAstNode = True
+        Exit Function
+    End If
+    If ModTexAst.mNodes(nd).NodeType = AST_LIST Then
+        If ModTexAst.mNodes(nd).ChildList Is Nothing Then
+            IsEmptyAstNode = True
+        ElseIf ModTexAst.mNodes(nd).ChildList.Count = 0 Then
+            IsEmptyAstNode = True
+        End If
+    End If
+End Function
+
+Private Function IsSafeFontCmd(ByVal cmd As String, ByVal fontMode As String) As Boolean
+    If cmd = "\ " Or cmd = "\," Or cmd = "\:" Or cmd = "\;" Or cmd = "\quad" Or cmd = "\qquad" Then
+        IsSafeFontCmd = True
+        Exit Function
+    End If
+    If cmd = "\%" Or cmd = "\$" Or cmd = "\&" Or cmd = "\_" Or cmd = "\#" Or cmd = "\{" Or cmd = "\}" Then
+        IsSafeFontCmd = True
+        Exit Function
+    End If
+    If fontMode = "text" Then
+        If cmd = "\u" Or cmd = "\v" Or cmd = "\t" Or cmd = "\r" Or cmd = "\b" Or cmd = "\c" Or cmd = "\d" Or cmd = "\k" Or cmd = "\H" Then
+            IsSafeFontCmd = True
+            Exit Function
+        End If
+    End If
+    If Len(ModTexSymbols.LookupGreek(cmd)) > 0 Then
+        IsSafeFontCmd = True
+        Exit Function
+    End If
+    If Len(ModTexSymbols.LookupSymbol(cmd)) > 0 Then
+        IsSafeFontCmd = True
+        Exit Function
+    End If
+    IsSafeFontCmd = False
+End Function
+
+Private Function HasComplexFontArg(ByVal fontMode As String) As Boolean
+    Dim i As Long
+    Dim depth As Long
+    Dim t As TexToken
+
+    t = ModTexAst.CurTok()
+    If t.TokType = TOK_EOF Then Exit Function
+    If t.TokType <> TOK_LBRACE Then
+        If t.TokType = TOK_SUB Or t.TokType = TOK_SUP Then
+            HasComplexFontArg = True
+        ElseIf t.TokType = TOK_CMD Then
+            HasComplexFontArg = Not IsSafeFontCmd(t.Val, fontMode)
+        End If
+        Exit Function
+    End If
+
+    depth = 1
+    i = ModTexAst.mPos + 1
+    Do While i <= ModTexAst.mTokenCount And depth > 0
+        t = ModTexAst.mTokens(i)
+        If t.TokType = TOK_EOF Then
+            Exit Do
+        ElseIf t.TokType = TOK_LBRACE Then
+            depth = depth + 1
+        ElseIf t.TokType = TOK_RBRACE Then
+            depth = depth - 1
+        ElseIf t.TokType = TOK_SUB Or t.TokType = TOK_SUP Then
+            HasComplexFontArg = True
+            Exit Function
+        ElseIf t.TokType = TOK_CMD Then
+            If Not IsSafeFontCmd(t.Val, fontMode) Then
+                HasComplexFontArg = True
+                Exit Function
+            End If
+        End If
+        i = i + 1
+    Loop
+End Function
+
+Private Function ParseFont(ByVal fontMode As String, Optional ByVal allowSubSup As Boolean = True) As Long
     Dim rawText As String
     Dim nd As Long
     ModTexAst.AdvanceTok
+    If HasComplexFontArg(fontMode) Then
+        ModTexAst.SetAmbiguous True
+    End If
     rawText = ModTexAst.ConsumeLiteralTextArg()
     nd = ModTexAst.AllocNode(AST_TEXT)
     ModTexAst.mNodes(nd).Str1 = rawText
     ModTexAst.mNodes(nd).Str2 = fontMode
-    ParseFont = ModTexAst.HandleSubSup(nd)
+    If allowSubSup Then nd = ModTexAst.HandleSubSup(nd)
+    ParseFont = nd
+End Function
+
+Private Function ConsumeLimitModOverride() As String
+    Dim limOverride As String
+    limOverride = ""
+    Do While ModTexAst.CurTok().TokType = TOK_CMD
+        If ModTexAst.CurTok().Val = "\limits" Then
+            limOverride = "undOvr"
+            ModTexAst.AdvanceTok
+        ElseIf ModTexAst.CurTok().Val = "\nolimits" Then
+            limOverride = "subSup"
+            ModTexAst.AdvanceTok
+        Else
+            Exit Do
+        End If
+    Loop
+    ConsumeLimitModOverride = limOverride
 End Function
 
 Private Function IsNaryStopTok() As Boolean
@@ -51,9 +151,10 @@ Private Function ParseNary(ByVal cmd As String, ByVal chVal As String) As Long
     Dim bodyNode As Long
     Dim nd As Long
     Dim p As Long
+    Dim limOverride As String
 
     ModTexAst.AdvanceTok
-    ModTexAst.SkipLimitMods
+    limOverride = ConsumeLimitModOverride()
     subNode = 0
     supNode = 0
     For p = 1 To 2
@@ -73,7 +174,9 @@ Private Function ParseNary(ByVal cmd As String, ByVal chVal As String) As Long
 
     nd = ModTexAst.AllocNode(AST_NARY)
     ModTexAst.mNodes(nd).Str1 = chVal
-    If chVal = ChrW(&H222B) Or chVal = ChrW(&H222C) Or chVal = ChrW(&H222D) Or chVal = ChrW(&H222E) Then
+    If Len(limOverride) > 0 Then
+        ModTexAst.mNodes(nd).Str2 = limOverride
+    ElseIf chVal = ChrW(&H222B) Or chVal = ChrW(&H222C) Or chVal = ChrW(&H222D) Or chVal = ChrW(&H222E) Then
         ModTexAst.mNodes(nd).Str2 = "subSup"
     Else
         ModTexAst.mNodes(nd).Str2 = "undOvr"
@@ -84,11 +187,11 @@ Private Function ParseNary(ByVal cmd As String, ByVal chVal As String) As Long
     ParseNary = nd
 End Function
 
-Public Function ParseCommand(ByVal cmd As String) As Long
+Public Function ParseCommand(ByVal cmd As String, Optional ByVal allowSubSup As Boolean = True) As Long
     Dim cleanCmd As String, fontMode As String, begChr As String, endChr As String, rawDelim As String, chVal As String
     Dim numNode As Long, denNode As Long, baseNode As Long, degNode As Long, bodyNode As Long, subNode As Long, supNode As Long, fnNode As Long, nd As Long
 
-    If cmd = "\tag" Then
+    If cmd = "\tag" Or cmd = "\tag*" Then
         ModTexAst.AdvanceTok
         ModTexAst.mEqTag = ModTexAst.ConsumeLiteralTextArg()
         ParseCommand = 0
@@ -104,7 +207,11 @@ Public Function ParseCommand(ByVal cmd As String) As Long
             ModTexAst.AdvanceTok
         Loop
         If Not ModTexSymbols.IsExpressionStopTok(ModTexAst.CurTok().TokType, ModTexAst.CurTok().Val) Then
-            ParseCommand = ModTexParser.ParsePrimary()
+            If allowSubSup Then
+                ParseCommand = ModTexParser.ParsePrimary()
+            Else
+                ParseCommand = ModTexParser.ParseArgument()
+            End If
         End If
         Exit Function
     ElseIf ModTexSymbols.IsNoOpMathCmd(cmd) Then
@@ -120,7 +227,8 @@ Public Function ParseCommand(ByVal cmd As String) As Long
         ModTexAst.mNodes(nd).Child2 = denNode
         If cmd = "\frac" Or cmd = "\dfrac" Or cmd = "\tfrac" Or cmd = "\cfrac" Then
             ModTexAst.mNodes(nd).Bool1 = True
-            ParseCommand = ModTexAst.HandleSubSup(nd)
+            If allowSubSup Then nd = ModTexAst.HandleSubSup(nd)
+            ParseCommand = nd
         Else
             ModTexAst.mNodes(nd).Bool1 = False
             baseNode = ModTexAst.AllocNode(AST_DELIM)
@@ -128,7 +236,8 @@ Public Function ParseCommand(ByVal cmd As String) As Long
             ModTexAst.mNodes(baseNode).Str2 = ")"
             ModTexAst.mNodes(baseNode).Bool1 = True
             ModTexAst.mNodes(baseNode).Child1 = nd
-            ParseCommand = ModTexAst.HandleSubSup(baseNode)
+            If allowSubSup Then baseNode = ModTexAst.HandleSubSup(baseNode)
+            ParseCommand = baseNode
         End If
         Exit Function
     ElseIf cmd = "\sqrt" Then
@@ -143,7 +252,8 @@ Public Function ParseCommand(ByVal cmd As String) As Long
         nd = ModTexAst.AllocNode(AST_RAD)
         ModTexAst.mNodes(nd).Child1 = baseNode
         ModTexAst.mNodes(nd).Child2 = degNode
-        ParseCommand = ModTexAst.HandleSubSup(nd)
+        If allowSubSup Then nd = ModTexAst.HandleSubSup(nd)
+        ParseCommand = nd
         Exit Function
     ElseIf cmd = "\left" Or ModTexSymbols.MapBigCloseCmd(cmd) <> "" Or ModTexSymbols.IsBigCloseOnlyCmd(cmd) Then
         ModTexAst.AdvanceTok
@@ -166,7 +276,8 @@ Public Function ParseCommand(ByVal cmd As String) As Long
                 nd = ModTexAst.AllocNode(AST_CHAR)
                 ModTexAst.mNodes(nd).Str1 = begChr
                 ModTexAst.mNodes(nd).Bool1 = False
-                ParseCommand = ModTexAst.HandleSubSup(nd)
+                If allowSubSup Then nd = ModTexAst.HandleSubSup(nd)
+                ParseCommand = nd
             End If
             Exit Function
         End If
@@ -175,24 +286,54 @@ Public Function ParseCommand(ByVal cmd As String) As Long
         ModTexAst.mNodes(nd).Str2 = endChr
         ModTexAst.mNodes(nd).Bool1 = True
         ModTexAst.mNodes(nd).Child1 = bodyNode
-        ParseCommand = ModTexAst.HandleSubSup(nd)
+        If allowSubSup Then nd = ModTexAst.HandleSubSup(nd)
+        ParseCommand = nd
         Exit Function
     ElseIf cmd = "\begin" Then
         nd = ModTexParserEnvs.ParseEnvironment()
-        ParseCommand = ModTexAst.HandleSubSup(nd)
+        If allowSubSup Then nd = ModTexAst.HandleSubSup(nd)
+        ParseCommand = nd
         Exit Function
     ElseIf cmd = "\underbrace" Then
         ModTexAst.AdvanceTok
         baseNode = ModTexParser.ParseArgument()
+        nd = ModTexAst.AllocNode(AST_GROUPCHR)
+        ModTexAst.mNodes(nd).Str1 = ChrW(&H23DF)
+        ModTexAst.mNodes(nd).Str2 = "bot"
+        ModTexAst.mNodes(nd).Child1 = baseNode
         subNode = 0
         If ModTexAst.CurTok().TokType = TOK_SUB Then
             ModTexAst.AdvanceTok
             subNode = ModTexParser.ParseArgument()
         End If
-        nd = ModTexAst.AllocNode(AST_LIMLOW)
-        ModTexAst.mNodes(nd).Str1 = "underbrace"
+        If Not IsEmptyAstNode(subNode) Then
+            baseNode = nd
+            nd = ModTexAst.AllocNode(AST_LIMLOW)
+            ModTexAst.mNodes(nd).Child1 = baseNode
+            ModTexAst.mNodes(nd).Child2 = subNode
+        End If
+        If allowSubSup Then nd = ModTexAst.HandleSubSup(nd)
+        ParseCommand = nd
+        Exit Function
+    ElseIf cmd = "\overbrace" Then
+        ModTexAst.AdvanceTok
+        baseNode = ModTexParser.ParseArgument()
+        nd = ModTexAst.AllocNode(AST_GROUPCHR)
+        ModTexAst.mNodes(nd).Str1 = ChrW(&H23DE)
+        ModTexAst.mNodes(nd).Str2 = "top"
         ModTexAst.mNodes(nd).Child1 = baseNode
-        ModTexAst.mNodes(nd).Child2 = subNode
+        supNode = 0
+        If ModTexAst.CurTok().TokType = TOK_SUP Then
+            ModTexAst.AdvanceTok
+            supNode = ModTexParser.ParseArgument()
+        End If
+        If Not IsEmptyAstNode(supNode) Then
+            baseNode = nd
+            nd = ModTexAst.AllocNode(AST_LIMUPP)
+            ModTexAst.mNodes(nd).Child1 = baseNode
+            ModTexAst.mNodes(nd).Child2 = supNode
+        End If
+        If allowSubSup Then nd = ModTexAst.HandleSubSup(nd)
         ParseCommand = nd
         Exit Function
     ElseIf cmd = "\overset" Then
@@ -202,9 +343,20 @@ Public Function ParseCommand(ByVal cmd As String) As Long
         nd = ModTexAst.AllocNode(AST_LIMUPP)
         ModTexAst.mNodes(nd).Child1 = baseNode
         ModTexAst.mNodes(nd).Child2 = supNode
+        If allowSubSup Then nd = ModTexAst.HandleSubSup(nd)
         ParseCommand = nd
         Exit Function
-    ElseIf cmd = "\xrightarrow" Then
+    ElseIf cmd = "\underset" Then
+        ModTexAst.AdvanceTok
+        subNode = ModTexParser.ParseArgument()
+        baseNode = ModTexParser.ParseArgument()
+        nd = ModTexAst.AllocNode(AST_LIMLOW)
+        ModTexAst.mNodes(nd).Child1 = baseNode
+        ModTexAst.mNodes(nd).Child2 = subNode
+        If allowSubSup Then nd = ModTexAst.HandleSubSup(nd)
+        ParseCommand = nd
+        Exit Function
+    ElseIf cmd = "\xrightarrow" Or cmd = "\xleftarrow" Then
         ModTexAst.AdvanceTok
         subNode = 0
         If ModTexAst.CurTok().TokType = TOK_LBRACK Then
@@ -214,25 +366,34 @@ Public Function ParseCommand(ByVal cmd As String) As Long
         End If
         supNode = ModTexParser.ParseArgument()
         baseNode = ModTexAst.AllocNode(AST_CHAR)
-        ModTexAst.mNodes(baseNode).Str1 = ChrW(&H2192)
+        If cmd = "\xrightarrow" Then
+            ModTexAst.mNodes(baseNode).Str1 = ChrW(&H2192)
+        Else
+            ModTexAst.mNodes(baseNode).Str1 = ChrW(&H2190)
+        End If
         ModTexAst.mNodes(baseNode).Bool1 = True
-        If subNode <> 0 Then
+        If Not IsEmptyAstNode(subNode) Then
             nd = ModTexAst.AllocNode(AST_LIMLOW)
             ModTexAst.mNodes(nd).Child1 = baseNode
             ModTexAst.mNodes(nd).Child2 = subNode
             baseNode = nd
         End If
-        nd = ModTexAst.AllocNode(AST_LIMUPP)
-        ModTexAst.mNodes(nd).Child1 = baseNode
-        ModTexAst.mNodes(nd).Child2 = supNode
-        ParseCommand = nd
+        If Not IsEmptyAstNode(supNode) Then
+            nd = ModTexAst.AllocNode(AST_LIMUPP)
+            ModTexAst.mNodes(nd).Child1 = baseNode
+            ModTexAst.mNodes(nd).Child2 = supNode
+            baseNode = nd
+        End If
+        If allowSubSup Then baseNode = ModTexAst.HandleSubSup(baseNode)
+        ParseCommand = baseNode
         Exit Function
     ElseIf cmd = "\boxed" Then
         ModTexAst.AdvanceTok
         bodyNode = ModTexParser.ParseArgument()
         nd = ModTexAst.AllocNode(AST_BORDERBOX)
         ModTexAst.mNodes(nd).Child1 = bodyNode
-        ParseCommand = ModTexAst.HandleSubSup(nd)
+        If allowSubSup Then nd = ModTexAst.HandleSubSup(nd)
+        ParseCommand = nd
         Exit Function
     ElseIf cmd = "\overline" Or cmd = "\underline" Then
         ModTexAst.AdvanceTok
@@ -244,7 +405,8 @@ Public Function ParseCommand(ByVal cmd As String) As Long
             ModTexAst.mNodes(nd).Str1 = "bot"
         End If
         ModTexAst.mNodes(nd).Child1 = baseNode
-        ParseCommand = ModTexAst.HandleSubSup(nd)
+        If allowSubSup Then nd = ModTexAst.HandleSubSup(nd)
+        ParseCommand = nd
         Exit Function
     ElseIf cmd = "\overrightarrow" Then
         ModTexAst.AdvanceTok
@@ -253,7 +415,8 @@ Public Function ParseCommand(ByVal cmd As String) As Long
         ModTexAst.mNodes(nd).Str1 = ChrW(&H2192)
         ModTexAst.mNodes(nd).Str2 = "top"
         ModTexAst.mNodes(nd).Child1 = baseNode
-        ParseCommand = ModTexAst.HandleSubSup(nd)
+        If allowSubSup Then nd = ModTexAst.HandleSubSup(nd)
+        ParseCommand = nd
         Exit Function
     ElseIf cmd = "\operatorname*" Or cmd = "\operatorname" Then
         ModTexAst.AdvanceTok
@@ -261,16 +424,18 @@ Public Function ParseCommand(ByVal cmd As String) As Long
         ModTexAst.mNodes(fnNode).Str1 = ModTexAst.ConsumeLiteralTextArg()
         ModTexAst.mNodes(fnNode).Str2 = "roman"
         ModTexAst.SkipLimitMods
-        If cmd = "\operatorname*" And ModTexAst.CurTok().TokType = TOK_SUB Then
+        If allowSubSup And cmd = "\operatorname*" And ModTexAst.CurTok().TokType = TOK_SUB Then
             ModTexAst.AdvanceTok
             subNode = ModTexParser.ParseArgument()
             nd = ModTexAst.AllocNode(AST_LIMLOW)
             ModTexAst.mNodes(nd).Child1 = fnNode
             ModTexAst.mNodes(nd).Child2 = subNode
+            nd = ModTexAst.HandleSubSup(nd)
             ParseCommand = nd
             Exit Function
         End If
-        ParseCommand = ModTexAst.HandleSubSup(fnNode)
+        If allowSubSup Then fnNode = ModTexAst.HandleSubSup(fnNode)
+        ParseCommand = fnNode
         Exit Function
     ElseIf cmd = "\not" Then
         ModTexAst.AdvanceTok
@@ -280,7 +445,8 @@ Public Function ParseCommand(ByVal cmd As String) As Long
             nd = ModTexAst.AllocNode(AST_CHAR)
             ModTexAst.mNodes(nd).Str1 = chVal
             ModTexAst.mNodes(nd).Bool1 = ModTexSymbols.IsOperatorChar(chVal)
-            ParseCommand = ModTexAst.HandleSubSup(nd)
+            If allowSubSup Then nd = ModTexAst.HandleSubSup(nd)
+            ParseCommand = nd
         Else
             ModTexAst.SetAmbiguous True
             ParseCommand = 0
@@ -290,7 +456,7 @@ Public Function ParseCommand(ByVal cmd As String) As Long
 
     fontMode = ModTexSymbols.LookupFontMode(cmd)
     If Len(fontMode) > 0 Then
-        ParseCommand = ParseFont(fontMode)
+        ParseCommand = ParseFont(fontMode, allowSubSup)
         Exit Function
     End If
 
@@ -301,7 +467,8 @@ Public Function ParseCommand(ByVal cmd As String) As Long
         nd = ModTexAst.AllocNode(AST_ACC)
         ModTexAst.mNodes(nd).Str1 = chVal
         ModTexAst.mNodes(nd).Child1 = baseNode
-        ParseCommand = ModTexAst.HandleSubSup(nd)
+        If allowSubSup Then nd = ModTexAst.HandleSubSup(nd)
+        ParseCommand = nd
         Exit Function
     End If
 
@@ -319,25 +486,21 @@ Public Function ParseCommand(ByVal cmd As String) As Long
         ModTexAst.mNodes(fnNode).Str2 = "roman"
         If cleanCmd = "lim" Or cleanCmd = "min" Or cleanCmd = "max" Or cleanCmd = "inf" Or cleanCmd = "sup" Or cleanCmd = "argmin" Or cleanCmd = "argmax" Then
             ModTexAst.SkipLimitMods
-            If ModTexAst.CurTok().TokType = TOK_SUB Then
-                ModTexAst.AdvanceTok
-                subNode = ModTexParser.ParseArgument()
-                If Not ModTexAst.mIsBlock And cleanCmd <> "lim" And cleanCmd <> "argmin" And cleanCmd <> "argmax" Then
-                    nd = ModTexAst.AllocNode(AST_SUBSUP)
-                    ModTexAst.mNodes(nd).Child1 = fnNode
-                    ModTexAst.mNodes(nd).Child2 = subNode
-                    ParseCommand = nd
-                    Exit Function
-                Else
+            If allowSubSup And ModTexAst.CurTok().TokType = TOK_SUB Then
+                If ModTexAst.mIsBlock Or cleanCmd = "lim" Or cleanCmd = "argmin" Or cleanCmd = "argmax" Then
+                    ModTexAst.AdvanceTok
+                    subNode = ModTexParser.ParseArgument()
                     nd = ModTexAst.AllocNode(AST_LIMLOW)
                     ModTexAst.mNodes(nd).Child1 = fnNode
                     ModTexAst.mNodes(nd).Child2 = subNode
+                    nd = ModTexAst.HandleSubSup(nd)
                     ParseCommand = nd
                     Exit Function
                 End If
             End If
         End If
-        ParseCommand = ModTexAst.HandleSubSup(fnNode)
+        If allowSubSup Then fnNode = ModTexAst.HandleSubSup(fnNode)
+        ParseCommand = fnNode
         Exit Function
     End If
 
@@ -356,7 +519,8 @@ Public Function ParseCommand(ByVal cmd As String) As Long
         nd = ModTexAst.AllocNode(AST_CHAR)
         ModTexAst.mNodes(nd).Str1 = chVal
         ModTexAst.mNodes(nd).Bool1 = ModTexSymbols.IsOperatorChar(chVal)
-        ParseCommand = ModTexAst.HandleSubSup(nd)
+        If allowSubSup Then nd = ModTexAst.HandleSubSup(nd)
+        ParseCommand = nd
         Exit Function
     End If
 
@@ -365,7 +529,8 @@ Public Function ParseCommand(ByVal cmd As String) As Long
         nd = ModTexAst.AllocNode(AST_CHAR)
         ModTexAst.mNodes(nd).Str1 = ChrW(&H2225)
         ModTexAst.mNodes(nd).Bool1 = True
-        ParseCommand = ModTexAst.HandleSubSup(nd)
+        If allowSubSup Then nd = ModTexAst.HandleSubSup(nd)
+        ParseCommand = nd
         Exit Function
     End If
 

@@ -3,77 +3,89 @@
 <customUI xmlns="http://schemas.microsoft.com/office/2009/07/customui" onLoad="Ribbon_OnLoad">
   <ribbon>
     <tabs>
-      <tab id="tabAcademicFormat" label="Formatter Macro">
+      <tab id="tabAcademicFormat" label="Formatter Macro" keytip="AF">
         <group id="grpMarkers" label="Markers (Th&#x1EBB; &#x0110;&#x00E1;nh D&#x1EA5;u)">
-          <menu id="mnuInsertMarkers" label="Insert Marker (Ch&#x00E8;n Th&#x1EBB;)" size="large" imageMso="BookmarkInsert">
+          <menu id="mnuInsertMarkers" label="Insert Marker (Ch&#x00E8;n Th&#x1EBB;)" size="large" imageMso="BookmarkInsert" keytip="IM" getEnabled="Ribbon_GetControlsEnabled">
             <button id="btnInsListContent" label="TOC =listContent() (M&#x1EE5;c l&#x1EE5;c)"
+                    keytip="LC"
                     imageMso="TableOfContentsGallery"
                     screentip="Insert =listContent() (Ch&#x00E8;n th&#x1EBB; =listContent())"
                     supertip="Mark where to generate the Table of Contents. (&#x0110;&#x00E1;nh d&#x1EA5;u v&#x1ECB; tr&#x00ED; t&#x1EF1; &#x0111;&#x1ED9;ng t&#x1EA1;o M&#x1EE5;c l&#x1EE5;c ch&#x00ED;nh.)"
+                    getEnabled="Ribbon_GetControlsEnabled"
                     onAction="Ribbon_OnInsertMarker"/>
             <button id="btnInsListTable" label="LOT =listTableHere() (DM B&#x1EA3;ng)"
+                    keytip="LT"
                     imageMso="TableInsert"
                     screentip="Insert =listTableHere() (Ch&#x00E8;n th&#x1EBB; =listTableHere())"
                     supertip="Mark where to generate the List of Tables. (&#x0110;&#x00E1;nh d&#x1EA5;u v&#x1ECB; tr&#x00ED; t&#x1EF1; &#x0111;&#x1ED9;ng t&#x1EA1;o Danh m&#x1EE5;c b&#x1EA3;ng.)"
+                    getEnabled="Ribbon_GetControlsEnabled"
                     onAction="Ribbon_OnInsertMarker"/>
             <button id="btnInsListFigure" label="LOF =listFigureHere() (DM H&#x00EC;nh)"
+                    keytip="LF"
                     imageMso="PictureInsertFromFile"
                     screentip="Insert =listFigureHere() (Ch&#x00E8;n th&#x1EBB; =listFigureHere())"
                     supertip="Mark where to generate the List of Figures. (&#x0110;&#x00E1;nh d&#x1EA5;u v&#x1ECB; tr&#x00ED; t&#x1EF1; &#x0111;&#x1ED9;ng t&#x1EA1;o Danh m&#x1EE5;c h&#x00EC;nh.)"
+                    getEnabled="Ribbon_GetControlsEnabled"
                     onAction="Ribbon_OnInsertMarker"/>
             <button id="btnInsListAcronyms" label="LOA =listAcronyms() (DM Vi&#x1EBF;t t&#x1EAF;t)"
+                    keytip="LA"
                     imageMso="TableIndexes"
                     screentip="Insert =listAcronyms() (Ch&#x00E8;n th&#x1EBB; =listAcronyms())"
-                    supertip="Mark where to generate the List of Acronyms. (&#x0110;&#x00E1;nh d&#x1EA5;u v&#x1ECB; tr&#x00ED; t&#x1EA1;o Danh m&#x1EE5;c t&#x1EEB; vi&#x1EBF;t t&#x1EAF;t.)"
+                    supertip="Mark where to generate the List of Acronyms. (&#x0110;&#x00E1;nh d&#x1EA5;u v&#x1ECB; tr&#x00ED; t&#x1EF1; &#x0111;&#x1ED9;ng t&#x1EA1;o Danh m&#x1EE5;c t&#x1EEB; vi&#x1EBF;t t&#x1EAF;t.)"
+                    getEnabled="Ribbon_GetControlsEnabled"
                     onAction="Ribbon_OnInsertMarker"/>
             <menuSeparator id="sepMarkers1"/>
             <button id="btnInsContentStart" label="Start =contentStart() (B&#x1EAF;t &#x0111;&#x1EA7;u)"
+                    keytip="CS"
                     imageMso="StartAfterPrevious"
                     screentip="Insert =contentStart() (Ch&#x00E8;n th&#x1EBB; =contentStart())"
                     supertip="Mark the start of the main body to format. (&#x0110;&#x00E1;nh d&#x1EA5;u &#x0111;i&#x1EC3;m b&#x1EAF;t &#x0111;&#x1EA7;u ph&#x1EA7;n th&#x00E2;n b&#x00E0;i c&#x1EA7;n chu&#x1EA9;n h&#x00F3;a.)"
+                    getEnabled="Ribbon_GetControlsEnabled"
                     onAction="Ribbon_OnInsertMarker"/>
             <button id="btnInsContentEnd" label="End =contentEnd() (K&#x1EBF;t th&#x00FA;c)"
+                    keytip="CE"
                     imageMso="EndOfDocument"
                     screentip="Insert =contentEnd() (Ch&#x00E8;n th&#x1EBB; =contentEnd())"
                     supertip="Mark the end of the main body. (&#x0110;&#x00E1;nh d&#x1EA5;u &#x0111;i&#x1EC3;m k&#x1EBF;t th&#x00FA;c ph&#x1EA7;n th&#x00E2;n b&#x00E0;i.)"
+                    getEnabled="Ribbon_GetControlsEnabled"
                     onAction="Ribbon_OnInsertMarker"/>
           </menu>
         </group>
         <group id="grpTypography" label="Typography (Ki&#x1EC3;u ch&#x1EEF;)">
-          <dropDown id="ddFontName" label="Font (Ph&#x00F4;ng):" getSelectedItemID="Ribbon_GetSelectedFont" onAction="Ribbon_OnFontChange">
+          <dropDown id="ddFontName" label="Font (Ph&#x00F4;ng):" keytip="FN" getEnabled="Ribbon_GetControlsEnabled" getSelectedItemID="Ribbon_GetSelectedFont" onAction="Ribbon_OnFontChange">
             <item id="font_tnr" label="Times New Roman"/>
             <item id="font_arial" label="Arial"/>
             <item id="font_calibri" label="Calibri"/>
           </dropDown>
-          <dropDown id="ddFontSize" label="Size (C&#x1EE1;):" getSelectedItemID="Ribbon_GetSelectedSize" onAction="Ribbon_OnSizeChange">
+          <dropDown id="ddFontSize" label="Size (C&#x1EE1;):" keytip="FS" getEnabled="Ribbon_GetControlsEnabled" getSelectedItemID="Ribbon_GetSelectedSize" onAction="Ribbon_OnSizeChange">
             <item id="size_12" label="12 pt"/>
             <item id="size_13" label="13 pt (Standard / Chu&#x1EA9;n)"/>
             <item id="size_14" label="14 pt"/>
           </dropDown>
-          <dropDown id="ddLineSpacing" label="Spacing (Gi&#x00E3;n):" getSelectedItemID="Ribbon_GetSelectedLineSpacing" onAction="Ribbon_OnLineSpacingChange">
+          <dropDown id="ddLineSpacing" label="Spacing (Gi&#x00E3;n):" keytip="LS" getEnabled="Ribbon_GetControlsEnabled" getSelectedItemID="Ribbon_GetSelectedLineSpacing" onAction="Ribbon_OnLineSpacingChange">
             <item id="ls_keep" label="Keep (Gi&#x1EEF; nguy&#x00EA;n)"/>
             <item id="ls_115" label="1.15 lines"/>
             <item id="ls_130" label="1.3 lines"/>
             <item id="ls_150" label="1.5 lines"/>
           </dropDown>
-          <dropDown id="ddIndent" label="Indent (Th&#x1EE5;t):" getSelectedItemID="Ribbon_GetSelectedIndent" onAction="Ribbon_OnIndentChange">
+          <dropDown id="ddIndent" label="Indent (Th&#x1EE5;t):" keytip="IN" getEnabled="Ribbon_GetControlsEnabled" getSelectedItemID="Ribbon_GetSelectedIndent" onAction="Ribbon_OnIndentChange">
             <item id="ind_127" label="1.27 cm (0.5 in)"/>
             <item id="ind_100" label="1.00 cm"/>
             <item id="ind_000" label="0.00 cm"/>
           </dropDown>
         </group>
         <group id="grpListsConfig" label="List Config (C&#x1EA5;u h&#x00EC;nh DM)">
-          <dropDown id="ddListLang" label="Lang (Ng&#x00F4;n ng&#x1EEF;):" getSelectedItemID="Ribbon_GetSelectedLang" onAction="Ribbon_OnLangChange">
+          <dropDown id="ddListLang" label="Lang (Ng&#x00F4;n ng&#x1EEF;):" keytip="LG" getEnabled="Ribbon_GetControlsEnabled" getSelectedItemID="Ribbon_GetSelectedLang" onAction="Ribbon_OnLangChange">
             <item id="lang_vi" label="Vietnamese (Ti&#x1EBF;ng Vi&#x1EC7;t)"/>
             <item id="lang_en" label="English (Ti&#x1EBF;ng Anh)"/>
           </dropDown>
-          <checkBox id="chkBoldTOC" label="Bold All TOC (In &#x0111;&#x1EAD;m TOC)" getPressed="Ribbon_GetBoldTOC" onAction="Ribbon_OnBoldTOCToggle"/>
-          <checkBox id="chkFooterPage" label="Footer Page # (S&#x1ED1; trang Footer)" getPressed="Ribbon_GetFooterPage" onAction="Ribbon_OnFooterPageToggle"/>
-          <dropDown id="ddTocDepth" label="Depth (&#x0110;&#x1ED9; s&#x00E2;u):" getSelectedItemID="Ribbon_GetTocDepth" onAction="Ribbon_OnTocDepthChange">
+          <checkBox id="chkBoldTOC" label="Bold All TOC (In &#x0111;&#x1EAD;m TOC)" keytip="BT" getEnabled="Ribbon_GetControlsEnabled" getPressed="Ribbon_GetBoldTOC" onAction="Ribbon_OnBoldTOCToggle"/>
+          <checkBox id="chkFooterPage" label="Footer Page # (S&#x1ED1; trang Footer)" keytip="FP" getEnabled="Ribbon_GetControlsEnabled" getPressed="Ribbon_GetFooterPage" onAction="Ribbon_OnFooterPageToggle"/>
+          <dropDown id="ddTocDepth" label="Depth (&#x0110;&#x1ED9; s&#x00E2;u):" keytip="TD" getEnabled="Ribbon_GetControlsEnabled" getSelectedItemID="Ribbon_GetTocDepth" onAction="Ribbon_OnTocDepthChange">
             <item id="depth_4" label="Level 1-4 (C&#x1EA5;p 1-4)"/>
             <item id="depth_3" label="Level 1-3 (C&#x1EA5;p 1-3)"/>
           </dropDown>
-          <dropDown id="ddCrossRefColor" label="Ref Link (M&#x00E0;u link):" getSelectedItemID="Ribbon_GetCrossRefColor" onAction="Ribbon_OnCrossRefColorChange">
+          <dropDown id="ddCrossRefColor" label="Ref Link (M&#x00E0;u link):" keytip="CR" getEnabled="Ribbon_GetControlsEnabled" getSelectedItemID="Ribbon_GetCrossRefColor" onAction="Ribbon_OnCrossRefColorChange">
             <item id="xref_blue" label="Blue (Xanh d&#x01B0;&#x01A1;ng)"/>
             <item id="xref_orange" label="Orange (Cam)"/>
             <item id="xref_red" label="Red (&#x0110;&#x1ECF;)"/>
@@ -82,65 +94,97 @@
           </dropDown>
         </group>
         <group id="grpMath" label="Math (To&#x00E1;n LaTeX)">
-          <button id="btnMathBuild" label="Build Math (D&#x1EF1;ng To&#x00E1;n)" size="large" imageMso="EquationInsertNew"
+          <button id="btnMathBuild" label="Build Math (D&#x1EF1;ng To&#x00E1;n)" size="large" imageMso="EquationInsertNew" keytip="MB"
                   screentip="Convert LaTeX to Word Math (Chuy&#x1EC3;n LaTeX sang c&#x00F4;ng th&#x1EE9;c Word)"
                   supertip="Scan body text, convert LaTeX to Word OMath, and apply Pastel review shading. (Qu&#x00E9;t th&#x00E2;n b&#x00E0;i, d&#x1EF1;ng c&#x00F4;ng th&#x1EE9;c Word v&#x00E0; t&#x00F4; n&#x1EC1;n Pastel &#x0111;&#x1EC3; ki&#x1EC3;m tra.)"
+                  getEnabled="Ribbon_GetControlsEnabled"
                   onAction="Ribbon_OnMathBuild"/>
           <separator id="sepMath"/>
-          <button id="btnMathToggle" label="Toggle / Edit (&#x0110;&#x1ED5;i / S&#x1EED;a)" size="normal" imageMso="Repeat"
+          <button id="btnMathToggle" label="Toggle / Edit (&#x0110;&#x1ED5;i / S&#x1EED;a)" size="normal" imageMso="Repeat" keytip="MT"
                   screentip="Toggle Formula at Cursor (&#x0110;&#x1ED5;i c&#x00F4;ng th&#x1EE9;c t&#x1EA1;i con tr&#x1ECF;)"
                   supertip="Switch between Word OMath and raw LaTeX, or build selected LaTeX. (Chuy&#x1EC3;n qua l&#x1EA1;i gi&#x1EEF;a OMath v&#x00E0; m&#x00E3; LaTeX g&#x1ED1;c, ho&#x1EB7;c d&#x1EF1;ng v&#x00F9;ng ch&#x1ECD;n.)"
+                  getEnabled="Ribbon_GetControlsEnabled"
                   onAction="Ribbon_OnMathToggle"/>
-          <button id="btnMathFinalize" label="Finalize Math (Ch&#x1ED1;t To&#x00E1;n)" size="normal" imageMso="ReviewAcceptAllChangesInDocument"
+          <button id="btnMathNextPink" label="Next Pink" size="normal" keytip="MN" imageMso="ReviewNextChange" getEnabled="Ribbon_GetControlsEnabled" onAction="Ribbon_OnMathNextPink" screentip="Next Pink Math (C&#x00F4;ng th&#x1EE9;c H&#x1ED3;ng ti&#x1EBF;p theo)" supertip="Jump to the next Pink-highlighted math item needing review." />
+          <button id="btnMathFinalize" label="Finalize Math (Ch&#x1ED1;t To&#x00E1;n)" size="normal" imageMso="ReviewAcceptChange" keytip="MF"
                   screentip="Clear Shading &amp; Draft Data (X&#x00F3;a n&#x1EC1;n Pastel &amp; d&#x1EEF; li&#x1EC7;u nh&#x00E1;p)"
                   supertip="Remove all Pastel shading and math bookmarks before submission. (X&#x00F3;a to&#x00E0;n b&#x1ED9; m&#x00E0;u n&#x1EC1;n Pastel v&#x00E0; bookmark to&#x00E1;n h&#x1ECD;c tr&#x01B0;&#x1EDB;c khi n&#x1ED9;p b&#x00E0;i.)"
+                  getEnabled="Ribbon_GetControlsEnabled"
                   onAction="Ribbon_OnMathFinalize"/>
         </group>
         <group id="grpActions" label="Actions (Th&#x1EF1;c thi)">
-          <button id="btnFullRun" label="Format All (&#x0110;&#x1ECB;nh d&#x1EA1;ng)" size="large" imageMso="AutoFormat"
+          <button id="btnFullRun" label="Format All (&#x0110;&#x1ECB;nh d&#x1EA1;ng)" size="large" imageMso="AutoFormat" keytip="FA"
                   screentip="Format Document &amp; Build Lists (&#x0110;&#x1ECB;nh d&#x1EA1;ng to&#x00E0;n b&#x00E0;i &amp; D&#x1EF1;ng m&#x1EE5;c l&#x1EE5;c)"
                   supertip="Apply font, spacing, indents to body text and rebuild TOC, LOT, LOF. (&#x00C1;p d&#x1EE5;ng ph&#x00F4;ng ch&#x1EEF;, gi&#x00E3;n d&#x00F2;ng, th&#x1EE5;t l&#x1EC1; cho th&#x00E2;n b&#x00E0;i v&#x00E0; d&#x1EF1;ng l&#x1EA1;i 3 danh m&#x1EE5;c.)"
+                  getEnabled="Ribbon_GetControlsEnabled"
                   onAction="Ribbon_OnFullRun"/>
           <separator id="sepActions"/>
-          <button id="btnUpdateLists" label="Update Lists (C&#x1EAD;p nh&#x1EAD;t DM)" size="normal" imageMso="TableOfContentsUpdate"
-                  screentip="Refresh TOC / LOT / LOF Only (Ch&#x1EC9; l&#x00E0;m m&#x1EDB;i M&#x1EE5;c l&#x1EE5;c &amp; Danh m&#x1EE5;c)"
-                  supertip="Keep 100% of body formatting intact; only refresh headings and page numbers. (Gi&#x1EEF; nguy&#x00EA;n 100% &#x0111;&#x1ECB;nh d&#x1EA1;ng th&#x00E2;n b&#x00E0;i, ch&#x1EC9; c&#x1EAD;p nh&#x1EAD;t ti&#x00EA;u &#x0111;&#x1EC1; v&#x00E0; s&#x1ED1; trang.)"
-                  onAction="Ribbon_OnUpdateListsOnly"/>
-          <button id="btnCleanMarkers" label="Clean Markers (X&#x00F3;a Th&#x1EBB;)" size="normal" imageMso="ReviewDeleteMarkup"
+          <splitButton id="sbUpdateLists" size="normal" keytip="UL" getEnabled="Ribbon_GetControlsEnabled">
+            <button id="btnUpdateLists" label="Update Lists (C&#x1EAD;p nh&#x1EAD;t DM)" imageMso="TableOfContentsUpdate"
+                    screentip="Refresh TOC / LOT / LOF Only (Ch&#x1EC9; l&#x00E0;m m&#x1EDB;i M&#x1EE5;c l&#x1EE5;c &amp; Danh m&#x1EE5;c)"
+                    supertip="Keep 100% of body formatting intact; only refresh headings and page numbers. (Gi&#x1EEF; nguy&#x00EA;n 100% &#x0111;&#x1ECB;nh d&#x1EA1;ng th&#x00E2;n b&#x00E0;i, ch&#x1EC9; c&#x1EAD;p nh&#x1EAD;t ti&#x00EA;u &#x0111;&#x1EC1; v&#x00E0; s&#x1ED1; trang.)"
+                    getEnabled="Ribbon_GetControlsEnabled"
+                    onAction="Ribbon_OnUpdateListsOnly"/>
+            <menu id="mnuUpdateLists">
+              <button id="btnUpdateListsMenu" label="Update Lists (C&#x1EAD;p nh&#x1EAD;t DM)" imageMso="TableOfContentsUpdate"
+                      screentip="Refresh TOC / LOT / LOF Only (Ch&#x1EC9; l&#x00E0;m m&#x1EDB;i M&#x1EE5;c l&#x1EE5;c &amp; Danh m&#x1EE5;c)"
+                      supertip="Keep 100% of body formatting intact; only refresh headings and page numbers. (Gi&#x1EEF; nguy&#x00EA;n 100% &#x0111;&#x1ECB;nh d&#x1EA1;ng th&#x00E2;n b&#x00E0;i, ch&#x1EC9; c&#x1EAD;p nh&#x1EAD;t ti&#x00EA;u &#x0111;&#x1EC1; v&#x00E0; s&#x1ED1; trang.)"
+                      getEnabled="Ribbon_GetControlsEnabled"
+                      onAction="Ribbon_OnUpdateListsOnly"/>
+              <button id="btnLinkCrossRefsOnly" label="Link Cross-Refs Only (Ch&#x1EC9; g&#x1EAF;n Link ch&#x00E9;o)" imageMso="HyperlinkInsert" keytip="LC"
+                      screentip="Link Cross-References Only (Ch&#x1EC9; g&#x1EAF;n Link ch&#x00E9;o)"
+                      supertip="Add clickable cross-reference links without changing any font, size, outline level, or Word TOC field. (Ch&#x1EC9; g&#x1EAF;n link ch&#x00E9;o, gi&#x1EEF; nguy&#x00EA;n 100% ph&#x00F4;ng ch&#x1EEF;, Outline v&#x00E0; M&#x1EE5;c l&#x1EE5;c Word.)"
+                      getEnabled="Ribbon_GetControlsEnabled"
+                      onAction="Ribbon_OnLinkCrossRefsOnly"/>
+            </menu>
+          </splitButton>
+          <button id="btnCleanMarkers" label="Clean Markers (X&#x00F3;a Th&#x1EBB;)" size="normal" imageMso="ReviewDeleteMarkup" keytip="CM"
                   screentip="Remove =...() Markers (X&#x00F3;a to&#x00E0;n b&#x1ED9; th&#x1EBB; =...())"
                   supertip="Remove technical markers and extra spaces before exporting PDF. Undoable. (X&#x00F3;a s&#x1EA1;ch th&#x1EBB; k&#x1EF9; thu&#x1EAD;t v&#x00E0; kho&#x1EA3;ng tr&#x1EAF;ng th&#x1EEB;a tr&#x01B0;&#x1EDB;c khi xu&#x1EA5;t PDF. C&#x00F3; th&#x1EC3; Undo.)"
+                  getEnabled="Ribbon_GetControlsEnabled"
                   onAction="Ribbon_OnCleanMarkers"/>
           <separator id="sepAiPatch"/>
-          <splitButton id="sbAiPatch" size="large">
+          <splitButton id="sbAiPatch" size="large" keytip="AP" getEnabled="Ribbon_GetControlsEnabled">
             <button id="btnAiPatchMain" label="AI Patch" imageMso="Paste"
                     screentip="Apply AI Patch from Clipboard (Ch&#x1EA1;y AI Patch t&#x1EEB; Clipboard)"
                     supertip="Parse AF-PATCH v1/v2 from Clipboard (@STYLE, @TAG, @STRUCT, @REFS, @FIX, @CITE, @ACRONYMS). (&#x0110;&#x1ECD;c AF-PATCH v1/v2 t&#x1EEB; Clipboard, &#x00E1;p @STYLE/@TAG, g&#x1EAF;n link tr&#x00ED;ch d&#x1EAB;n APA v&#x00E0; d&#x1EF1;ng DM Vi&#x1EBF;t t&#x1EAF;t.)"
+                    getEnabled="Ribbon_GetControlsEnabled"
                     onAction="Ribbon_OnAiPatchClipboard"/>
             <menu id="mnuAiPatch">
-              <button id="btnAiPatchClip" label="Apply from Clipboard (T&#x1EEB; Clipboard)" imageMso="Paste"
+              <button id="btnAiPatchClip" label="Apply from Clipboard (T&#x1EEB; Clipboard)" imageMso="Paste" keytip="AC"
                       screentip="Apply AI Patch from Clipboard (Ch&#x1EA1;y t&#x1EEB; Clipboard)"
                       supertip="Read AF-PATCH v1/v2 text from Windows Clipboard with Dry-Run preview. (&#x0110;&#x1ECD;c AF-PATCH v1/v2 t&#x1EEB; Clipboard v&#x00E0; x&#x00E1;c nh&#x1EAD;n Dry-Run.)"
+                      getEnabled="Ribbon_GetControlsEnabled"
                       onAction="Ribbon_OnAiPatchClipboard"/>
-              <button id="btnAiPatchFile" label="Apply from File... (T&#x1EEB; File .txt)" imageMso="FileOpen"
+              <button id="btnAiPatchFile" label="Apply from File... (T&#x1EEB; File .txt)" imageMso="FileOpen" keytip="AF"
                       screentip="Apply AI Patch from UTF-8 .txt File (Ch&#x1EA1;y t&#x1EEB; File .txt)"
                       supertip="Select a UTF-8 patch .txt file exported from AI Web Chat (AF-PATCH v1/v2). (Ch&#x1ECD;n file .txt ch&#x1EE9;a AF-PATCH v1/v2 t&#x1EEB; AI Web Chat.)"
+                      getEnabled="Ribbon_GetControlsEnabled"
                       onAction="Ribbon_OnAiPatchFile"/>
               <menuSeparator id="sepAiPatch1"/>
-              <button id="btnPreAuditScan" label="Pre-Audit Scan (&#x0110;&#x1EBF;m tr&#x00ED;ch d&#x1EAB;n)" imageMso="FindDialog"
-                      screentip="Count EN &amp; VI APA Citations (&#x0110;&#x1EBF;m l&#x01B0;&#x1EE3;t tr&#x00ED;ch d&#x1EAB;n APA Anh-Vi&#x1EC7;t)"
-                      supertip="Read-only scan of body &amp; table citations and References count, with optional Clipboard summary copy. (Qu&#x00E9;t &#x0111;&#x1EBF;m ch&#x1EC9; &#x0111;&#x1ECD;c to&#x00E0;n th&#x00E2;n b&#x00E0;i v&#x00E0; b&#x1EA3;ng, t&#x00F9;y ch&#x1ECD;n ch&#x00E9;p b&#x00E1;o c&#x00E1;o.)"
+              <button id="btnPreAuditScan" label="Pre-Audit X-Ray &amp; Lint (Qu&#x00E9;t &amp; Ki&#x1EC3;m &#x0111;&#x1ECB;nh)" imageMso="FindDialog" keytip="PA"
+                      screentip="Document X-Ray, Style Linter &amp; Citation Audit (Qu&#x00E9;t c&#x1EA5;u tr&#x00FA;c, Linter &amp; Tr&#x00ED;ch d&#x1EAB;n)"
+                      supertip="Read-only X-Ray topology, 8-scope style consistency linter, visual suspects, and APA citation count with full Clipboard export. (Qu&#x00E9;t c&#x1EA5;u tr&#x00FA;c, ki&#x1EC3;m &#x0111;&#x1ECB;nh nh&#x1EA5;t qu&#x00E1;n 8 nh&#x00F3;m style v&#x00E0; &#x0111;&#x1EBF;m tr&#x00ED;ch d&#x1EAB;n.)"
+                      getEnabled="Ribbon_GetControlsEnabled"
                       onAction="Ribbon_OnPreAuditScan"/>
+              <button id="btnCaptureStyle" label="Capture Style (H&#x1ECD;c Style t&#x1EEB; file)" imageMso="FormatPainter" keytip="CS"
+                      screentip="Learn Sparse @STYLE Profile from Document (H&#x1ECD;c h&#x1ED3; s&#x01A1; @STYLE t&#x1EEB; file hi&#x1EC7;n t&#x1EA1;i)"
+                      supertip="Vote majority styles per scope (skipping TIE conflicts) and save as Sparse @STYLE variables to preserve teammate typography. (H&#x1ECD;c style s&#x1ED1; &#x0111;&#x00F4;ng, b&#x1ECF; qua nh&#x00F3;m h&#x00F2;a phi&#x1EBF;u, l&#x01B0;u @STYLE gi&#x1EEF; nguy&#x00EA;n b&#x1EAD;c thang c&#x1EE1; ch&#x1EEF;.)"
+                      getEnabled="Ribbon_GetControlsEnabled"
+                      onAction="Ribbon_OnCaptureStyle"/>
               <menuSeparator id="sepAiPatch2"/>
-              <button id="btnResetCustomStyle" label="Reset Custom Style (V&#x1EC1; m&#x1EB7;c &#x0111;&#x1ECB;nh)" imageMso="ClearFormatting"
+              <button id="btnResetCustomStyle" label="Reset Custom Style (V&#x1EC1; m&#x1EB7;c &#x0111;&#x1ECB;nh)" imageMso="ClearFormatting" keytip="RS"
                       screentip="Reset @STYLE / @TAG Profile (X&#x00F3;a h&#x1ED3; s&#x01A1; @STYLE / @TAG v&#x1EC1; m&#x1EB7;c &#x0111;&#x1ECB;nh)"
                       supertip="Clear saved @STYLE variables (and optionally @TAG bookmarks) and optionally re-run Format All to restore clean black default typography. (X&#x00F3;a h&#x1ED3; s&#x01A1; @STYLE v&#x00E0; t&#x00F9;y ch&#x1ECD;n ch&#x1EA1;y l&#x1EA1;i Format All &#x0111;&#x1EC3; t&#x1EA9;y m&#x00E0;u/font v&#x1EC1; m&#x1EB7;c &#x0111;&#x1ECB;nh.)"
+                      getEnabled="Ribbon_GetControlsEnabled"
                       onAction="Ribbon_OnResetCustomStyle"/>
             </menu>
           </splitButton>
           <separator id="sepExportPdf"/>
-          <button id="btnExportPdf" label="Export PDF (Xu&#x1EA5;t PDF)" size="large" imageMso="FileSaveAsPdfOrXps"
+          <button id="btnExportPdf" label="Export PDF (Xu&#x1EA5;t PDF)" size="large" imageMso="FileSaveAsPdfOrXps" keytip="EP"
                   screentip="Export PDF with Outline Bookmarks (Xu&#x1EA5;t PDF c&#x00F3; m&#x1EE5;c l&#x1EE5;c Bookmark)"
                   supertip="Export the document to PDF with clickable heading bookmarks and safety checks for markers/math shading. (Xu&#x1EA5;t PDF chu&#x1EA9;n c&#x00F3; Bookmark m&#x1EE5;c l&#x1EE5;c v&#x00E0; c&#x1EA3;nh b&#x00E1;o n&#x1EBF;u c&#x00F2;n th&#x1EBB;/n&#x1EC1;n to&#x00E1;n.)"
+                  getEnabled="Ribbon_GetControlsEnabled"
                   onAction="Ribbon_OnExportPdf"/>
         </group>
       </tab>

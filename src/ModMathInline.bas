@@ -325,7 +325,49 @@ Public Sub TrimMathRange(ByRef rng As Range)
     Dim txt As String
     Dim c As String
     Dim prevPos As Long
+    Dim lIdx As Long
+    Dim rIdx As Long
+    Dim trimChars As String
 
+    If rng.End <= rng.Start Then
+        Exit Sub
+    End If
+    trimChars = " " & vbTab & vbCr & Chr(11) & Chr(7) & ".,;:?"
+    txt = rng.Text
+    If Len(txt) = (rng.End - rng.Start) Then
+        lIdx = 1
+        rIdx = Len(txt)
+        Do While lIdx <= rIdx
+            c = Mid$(txt, lIdx, 1)
+            If c = "." And (rIdx - lIdx + 1) >= 2 Then
+                If Mid$(txt, lIdx + 1, 1) >= "0" And Mid$(txt, lIdx + 1, 1) <= "9" Then
+                    Exit Do
+                End If
+            End If
+            If InStr(1, trimChars, c) > 0 Then
+                lIdx = lIdx + 1
+            Else
+                Exit Do
+            End If
+        Loop
+        Do While rIdx >= lIdx
+            c = Mid$(txt, rIdx, 1)
+            If c = "." And (rIdx - lIdx + 1) >= 7 Then
+                If Mid$(txt, rIdx - 6, 7) = "\right." Then
+                    Exit Do
+                End If
+            End If
+            If InStr(1, trimChars, c) > 0 Then
+                rIdx = rIdx - 1
+            Else
+                Exit Do
+            End If
+        Loop
+        If lIdx > 1 Or rIdx < Len(txt) Then
+            rng.SetRange rng.Start + (lIdx - 1), rng.Start + rIdx
+        End If
+        Exit Sub
+    End If
     Do While rng.End > rng.Start
         txt = rng.Text
         If Len(txt) = 0 Then
@@ -337,7 +379,7 @@ Public Sub TrimMathRange(ByRef rng As Range)
                 Exit Do
             End If
         End If
-        If InStr(1, " " & vbTab & vbCr & Chr(11) & Chr(7) & ".,;:?", c) > 0 Then
+        If InStr(1, trimChars, c) > 0 Then
             prevPos = rng.Start
             rng.Start = rng.Start + 1
             If rng.Start <= prevPos Then
@@ -358,7 +400,7 @@ Public Sub TrimMathRange(ByRef rng As Range)
                 Exit Do
             End If
         End If
-        If InStr(1, " " & vbTab & vbCr & Chr(11) & Chr(7) & ".,;:?", c) > 0 Then
+        If InStr(1, trimChars, c) > 0 Then
             prevPos = rng.End
             rng.End = rng.End - 1
             If rng.End >= prevPos Then
@@ -375,11 +417,35 @@ Public Function HasForbiddenDomChar(ByVal txt As String) As Boolean
     Loop
     If InStr(1, txt, Chr(1)) > 0 Or InStr(1, txt, Chr(2)) > 0 Or InStr(1, txt, Chr(5)) > 0 Or InStr(1, txt, Chr(7)) > 0 Or InStr(1, txt, Chr(12)) > 0 Then
         HasForbiddenDomChar = True
+    ElseIf InStr(1, txt, Chr(14)) > 0 Or InStr(1, txt, Chr(19)) > 0 Or InStr(1, txt, Chr(20)) > 0 Or InStr(1, txt, Chr(21)) > 0 Then
+        HasForbiddenDomChar = True
     End If
 End Function
 
 Public Sub TrimTrailingDomMarks(ByVal rng As Range)
+    Dim txt As String
+    Dim trimCnt As Long
+    Dim idx As Long
     Dim prevEnd As Long
+    If rng.End <= rng.Start Then
+        Exit Sub
+    End If
+    txt = rng.Text
+    If Len(txt) = (rng.End - rng.Start) Then
+        idx = Len(txt)
+        Do While idx > 0
+            If Mid$(txt, idx, 1) = vbCr Or Mid$(txt, idx, 1) = Chr(7) Then
+                trimCnt = trimCnt + 1
+                idx = idx - 1
+            Else
+                Exit Do
+            End If
+        Loop
+        If trimCnt > 0 Then
+            rng.End = rng.End - trimCnt
+        End If
+        Exit Sub
+    End If
     Do While rng.End > rng.Start
         If Right$(rng.Text, 1) = vbCr Or Right$(rng.Text, 1) = Chr(7) Then
             prevEnd = rng.End

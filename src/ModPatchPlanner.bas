@@ -44,10 +44,23 @@ Public Type PlanStats
     TagsSkipped As Long
     OpCount As Long
     WarnNotes As String
+    WarnTruncatedCount As Long
 End Type
 
 Private Sub AppendWarnNote(ByRef stats As PlanStats, ByVal noteLine As String)
-    If Len(noteLine) = 0 Or Len(stats.WarnNotes) > 900 Then Exit Sub
+    If Len(noteLine) = 0 Then Exit Sub
+    If stats.WarnTruncatedCount > 0 Or Len(stats.WarnNotes) > 900 Then
+        Dim prevTail As String
+        If stats.WarnTruncatedCount > 0 Then
+            prevTail = vbCrLf & "... (" & stats.WarnTruncatedCount & " more omitted)"
+            If Right$(stats.WarnNotes, Len(prevTail)) = prevTail Then
+                stats.WarnNotes = Left$(stats.WarnNotes, Len(stats.WarnNotes) - Len(prevTail))
+            End If
+        End If
+        stats.WarnTruncatedCount = stats.WarnTruncatedCount + 1
+        stats.WarnNotes = stats.WarnNotes & vbCrLf & "... (" & stats.WarnTruncatedCount & " more omitted)"
+        Exit Sub
+    End If
     If Len(stats.WarnNotes) > 0 Then stats.WarnNotes = stats.WarnNotes & vbCrLf
     stats.WarnNotes = stats.WarnNotes & "- " & noteLine
 End Sub
@@ -154,61 +167,35 @@ Private Sub TrimOuterCitePunct(ByVal normTxt As String, ByRef normS As Long, ByR
     End If
 End Sub
 
-Private Function LocateSingleBodyOp(ByVal doc As Document, ByRef paras() As ScannedPara, ByVal pCount As Long, _
-                                    ByVal opKind As Long, ByVal ctxRaw As String, ByVal findRaw As String, _
-                                    ByVal repText As String, ByVal hasRep As Boolean, ByVal targetBm As String, _
-                                    ByVal shortTip As String, ByVal srcLine As Long, _
-                                    ByRef outOp As PatchOp, ByRef outSkipReason As String) As Boolean
-    Dim ctxNorm As String, findNorm As String, j As Long, totalHits As Long, paraHits As Long
-    Dim winParaIdx As Long, winS As Long, winE As Long, winCtxS As Long, winCtxE As Long
-    Dim tmpS As Long, tmpE As Long, tmpCS As Long, tmpCE As Long
-    ctxNorm = ModPatchMatcher.NormalizeStr(ctxRaw)
-    findNorm = ModPatchMatcher.NormalizeStr(findRaw)
-    If Len(findNorm) = 0 Then
-        outSkipReason = "Empty FIND"
-        Exit Function
-    End If
-    Dim isStruct As Boolean, inScope As Boolean
-    isStruct = (opKind = OP_KIND_STRUCT)
-    For j = 1 To pCount
-        If isStruct Then
-            inScope = (Not paras(j).IsInRefZone And Not paras(j).IsExcluded)
-        Else
-            inScope = (paras(j).InBodyScope And Not paras(j).IsInRefZone And Not paras(j).IsHeading And Not paras(j).IsExcluded)
-        End If
-        If inScope Then
-            paraHits = FindHitsInPara(paras(j), ctxNorm, findNorm, (opKind = OP_KIND_FIX Or isStruct), tmpS, tmpE, tmpCS, tmpCE)
-            If paraHits > 0 Then
-                totalHits = totalHits + paraHits
-                If totalHits = 1 Then
-                    winParaIdx = j
-                    winS = tmpS
-                    winE = tmpE
-                    winCtxS = tmpCS
-                    winCtxE = tmpCE
-                Else
-                    outSkipReason = "Ambiguous (" & totalHits & "+ hits)"
-                    Exit Function
-                End If
+Private Function MatchesNearAnchor(ByRef paras() As ScannedPara, ByVal candIdx As Long, ByVal nearNorm As String) As Boolean
+    Dim d As Long
+    For d = 1 To 3
+        If candIdx - d >= 1 Then
+            If InStr(1, paras(candIdx - d).NormText, nearNorm, vbTextCompare) > 0 Then
+                MatchesNearAnchor = True
+                Exit Function
             End If
         End If
-    Next j
-    If totalHits = 0 Then
-        If isStruct Then outSkipReason = "Not found in document" Else outSkipReason = "Not found in body"
-        Exit Function
-    End If
-    If opKind = OP_KIND_CITE Then TrimOuterCitePunct paras(winParaIdx).NormText, winS, winE, repText, hasRep
+    Next d
+End Function
+
+Private Function BuildValidatedOp(ByVal doc As Document, ByRef p As ScannedPara, ByVal pArrIdx As Long, _
+                                  ByVal opKind As Long, ByVal normS As Long, ByVal normE As Long, _
+                                  ByVal ctxS As Long, ByVal ctxE As Long, ByVal repText As String, _
+                                  ByVal hasRep As Boolean, ByVal targetBm As String, ByVal shortTip As String, _
+                                  ByVal srcLine As Long, ByRef outOp As PatchOp, ByRef outSkipReason As String) As Boolean
+    If opKind = OP_KIND_CITE Then TrimOuterCitePunct p.NormText, normS, normE, repText, hasRep
     Dim domS As Long, domE As Long, keepLnk As Boolean, synced As Boolean
-    If Not ModPatchDom.ResolveDomCoordinates(doc, paras(winParaIdx), winS, winE, winCtxS, winCtxE, domS, domE) Then
+    If Not ModPatchDom.ResolveDomCoordinates(doc, p, normS, normE, ctxS, ctxE, domS, domE) Then
         outSkipReason = "DOM mapping failed"
         Exit Function
     End If
-    If Not ModPatchDom.ValidateDomGuards(doc, paras(winParaIdx), opKind, domS, domE, targetBm, repText, hasRep, keepLnk, synced, outSkipReason) Then
+    If Not ModPatchDom.ValidateDomGuards(doc, p, opKind, domS, domE, targetBm, repText, hasRep, keepLnk, synced, outSkipReason) Then
         Exit Function
     End If
     outOp.Kind = opKind
-    outOp.ParaIdxInArr = winParaIdx
-    outOp.ParaIndex = paras(winParaIdx).ParaIndex
+    outOp.ParaIdxInArr = pArrIdx
+    outOp.ParaIndex = p.ParaIndex
     outOp.StartPos = domS
     outOp.EndPos = domE
     outOp.ReplaceText = repText
@@ -218,8 +205,116 @@ Private Function LocateSingleBodyOp(ByVal doc As Document, ByRef paras() As Scan
     outOp.SrcLine = srcLine
     outOp.KeepExistingLink = keepLnk
     outOp.IsAlreadySynced = synced
-    LocateSingleBodyOp = True
+    BuildValidatedOp = True
 End Function
+
+Private Function LocateSingleBodyOp(ByVal doc As Document, ByRef paras() As ScannedPara, ByVal pCount As Long, _
+                                    ByVal opKind As Long, ByVal ctxRaw As String, ByVal findRaw As String, _
+                                    ByVal repText As String, ByVal hasRep As Boolean, ByVal targetBm As String, _
+                                    ByVal shortTip As String, ByVal srcLine As Long, _
+                                    ByRef outOp As PatchOp, ByRef outSkipReason As String, _
+                                    Optional ByVal nearRaw As String = "") As Boolean
+    Dim ctxNorm As String, findNorm As String, nearNorm As String, j As Long, totalHits As Long, paraHits As Long
+    Dim winParaIdx As Long, winS As Long, winE As Long, winCtxS As Long, winCtxE As Long
+    Dim tmpS As Long, tmpE As Long, tmpCS As Long, tmpCE As Long
+    ctxNorm = ModPatchMatcher.NormalizeStr(ctxRaw)
+    findNorm = ModPatchMatcher.NormalizeStr(findRaw)
+    nearNorm = ModPatchMatcher.NormalizeStr(nearRaw)
+    If Len(findNorm) = 0 Then
+        outSkipReason = "Empty FIND"
+        Exit Function
+    End If
+    Dim isStruct As Boolean, inScope As Boolean, hasNear As Boolean
+    isStruct = (opKind = OP_KIND_STRUCT)
+    hasNear = (Len(nearNorm) > 0)
+    For j = 1 To pCount
+        If isStruct Then
+            inScope = (Not paras(j).IsInRefZone And Not paras(j).IsExcluded)
+        Else
+            inScope = (paras(j).InBodyScope And Not paras(j).IsInRefZone And Not paras(j).IsHeading And Not paras(j).IsExcluded)
+        End If
+        If inScope Then
+            paraHits = FindHitsInPara(paras(j), ctxNorm, findNorm, (opKind = OP_KIND_FIX Or isStruct), tmpS, tmpE, tmpCS, tmpCE)
+            If paraHits > 0 Then
+                If hasNear Then
+                    If Not MatchesNearAnchor(paras, j, nearNorm) Then paraHits = 0
+                End If
+                If paraHits > 0 Then
+                    totalHits = totalHits + paraHits
+                    If totalHits = 1 Then
+                        winParaIdx = j
+                        winS = tmpS
+                        winE = tmpE
+                        winCtxS = tmpCS
+                        winCtxE = tmpCE
+                    Else
+                        If hasNear Then
+                            outSkipReason = "Ambiguous after NEAR (" & totalHits & "+ hits)"
+                        Else
+                            outSkipReason = "Ambiguous (" & totalHits & "+ hits)"
+                        End If
+                        Exit Function
+                    End If
+                End If
+            End If
+        End If
+    Next j
+    If totalHits = 0 Then
+        If hasNear Then
+            outSkipReason = "NEAR anchor matched 0 hits"
+        ElseIf isStruct Then
+            outSkipReason = "Not found in document"
+        Else
+            outSkipReason = "Not found in body"
+        End If
+        Exit Function
+    End If
+    LocateSingleBodyOp = BuildValidatedOp(doc, paras(winParaIdx), winParaIdx, opKind, winS, winE, winCtxS, winCtxE, _
+                                          repText, hasRep, targetBm, shortTip, srcLine, outOp, outSkipReason)
+End Function
+
+Private Sub PlanExactAllCite(ByVal doc As Document, ByRef paras() As ScannedPara, ByVal pCount As Long, _
+                             ByRef cItem As PatchCiteItem, ByVal targetBm As String, ByVal shortTip As String, _
+                             ByRef outOps() As PatchOp, ByRef outStats As PlanStats)
+    Dim ctxNorm As String, findNorm As String, j As Long, matchedParas As Long
+    Dim tmpS As Long, tmpE As Long, tmpCS As Long, tmpCE As Long, candOp As PatchOp, reason As String
+    ctxNorm = ModPatchMatcher.NormalizeStr(cItem.CtxText)
+    findNorm = ModPatchMatcher.NormalizeStr(cItem.FindText)
+    If Len(ctxNorm) = 0 Or Len(findNorm) = 0 Then
+        outStats.CitesSkipped = outStats.CitesSkipped + 1
+        AppendWarnNote outStats, "@CITE L" & cItem.LineNo & ": Empty CTX or FIND"
+        Exit Sub
+    End If
+    matchedParas = 0
+    For j = 1 To pCount
+        If paras(j).InBodyScope And Not paras(j).IsInRefZone And Not paras(j).IsHeading And Not paras(j).IsExcluded Then
+            If StrComp(paras(j).NormText, ctxNorm, vbBinaryCompare) = 0 Then
+                If FindHitsInPara(paras(j), ctxNorm, findNorm, False, tmpS, tmpE, tmpCS, tmpCE) = 1 Then
+                    matchedParas = matchedParas + 1
+                    reason = ""
+                    If BuildValidatedOp(doc, paras(j), j, OP_KIND_CITE, tmpS, tmpE, tmpCS, tmpCE, _
+                                        cItem.FixText, cItem.HasFix, targetBm, shortTip, cItem.LineNo, candOp, reason) Then
+                        If candOp.IsAlreadySynced Then
+                            outStats.CitesAlready = outStats.CitesAlready + 1
+                        Else
+                            outStats.OpCount = outStats.OpCount + 1
+                            If outStats.OpCount > UBound(outOps) Then ReDim Preserve outOps(1 To outStats.OpCount + 32)
+                            outOps(outStats.OpCount) = candOp
+                            outStats.CitesPlanned = outStats.CitesPlanned + 1
+                        End If
+                    Else
+                        outStats.CitesSkipped = outStats.CitesSkipped + 1
+                        AppendWarnNote outStats, "@CITE L" & cItem.LineNo & ": " & reason
+                    End If
+                End If
+            End If
+        End If
+    Next j
+    If matchedParas = 0 Then
+        outStats.CitesSkipped = outStats.CitesSkipped + 1
+        AppendWarnNote outStats, "@CITE L" & cItem.LineNo & ": Exact match not found in body"
+    End If
+End Sub
 
 Public Sub PlanAllPatchOps(ByVal doc As Document, ByRef payload As PatchPayload, ByRef paras() As ScannedPara, _
                            ByVal pCount As Long, ByVal maxRefNum As Long, ByRef outRefs() As RefTargetInfo, _
@@ -273,20 +368,25 @@ Public Sub PlanAllPatchOps(ByVal doc As Document, ByRef payload As PatchPayload,
             AppendWarnNote outStats, "@CITE L" & payload.Cites(i).LineNo & ": Unknown/unmatched key '" & payload.Cites(i).RefKey & "'"
         Else
             tIdx = CLng(dictRefs(payload.Cites(i).RefKey))
-            reason = ""
-            If LocateSingleBodyOp(doc, paras, pCount, OP_KIND_CITE, payload.Cites(i).CtxText, payload.Cites(i).FindText, _
-                                  payload.Cites(i).FixText, payload.Cites(i).HasFix, outRefs(tIdx).BmName, _
-                                  outRefs(tIdx).ShortTip, payload.Cites(i).LineNo, candOp, reason) Then
-                If candOp.IsAlreadySynced Then
-                    outStats.CitesAlready = outStats.CitesAlready + 1
-                Else
-                    outStats.OpCount = outStats.OpCount + 1
-                    outOps(outStats.OpCount) = candOp
-                    outStats.CitesPlanned = outStats.CitesPlanned + 1
-                End If
+            If payload.Cites(i).MatchMode = "EXACT_ALL" Then
+                PlanExactAllCite doc, paras, pCount, payload.Cites(i), outRefs(tIdx).BmName, outRefs(tIdx).ShortTip, outOps, outStats
             Else
-                outStats.CitesSkipped = outStats.CitesSkipped + 1
-                AppendWarnNote outStats, "@CITE L" & payload.Cites(i).LineNo & ": " & reason
+                reason = ""
+                If LocateSingleBodyOp(doc, paras, pCount, OP_KIND_CITE, payload.Cites(i).CtxText, payload.Cites(i).FindText, _
+                                      payload.Cites(i).FixText, payload.Cites(i).HasFix, outRefs(tIdx).BmName, _
+                                      outRefs(tIdx).ShortTip, payload.Cites(i).LineNo, candOp, reason, payload.Cites(i).NearText) Then
+                    If candOp.IsAlreadySynced Then
+                        outStats.CitesAlready = outStats.CitesAlready + 1
+                    Else
+                        outStats.OpCount = outStats.OpCount + 1
+                        If outStats.OpCount > UBound(outOps) Then ReDim Preserve outOps(1 To outStats.OpCount + 32)
+                        outOps(outStats.OpCount) = candOp
+                        outStats.CitesPlanned = outStats.CitesPlanned + 1
+                    End If
+                Else
+                    outStats.CitesSkipped = outStats.CitesSkipped + 1
+                    AppendWarnNote outStats, "@CITE L" & payload.Cites(i).LineNo & ": " & reason
+                End If
             End If
         End If
     Next i
@@ -333,7 +433,8 @@ End Sub
 
 Public Sub PlanStylesAndTags(ByRef payload As PatchPayload, ByRef paras() As ScannedPara, ByVal pCount As Long, _
                              ByRef outStyles() As PlannedStyleOp, ByRef outStyleCnt As Long, _
-                             ByRef outTags() As PlannedTagOp, ByRef outTagCnt As Long, ByRef outStats As PlanStats)
+                             ByRef outTags() As PlannedTagOp, ByRef outTagCnt As Long, ByRef outStats As PlanStats, _
+                             Optional ByVal contentStartParaIdx As Long = 0)
     Dim i As Long, j As Long, sKey As String, sNorm As String, sRst As Boolean, sErr As String
     outStyleCnt = 0
     outTagCnt = 0
@@ -359,7 +460,7 @@ Public Sub PlanStylesAndTags(ByRef payload As PatchPayload, ByRef paras() As Sca
     outStats.TagsSkipped = payload.SkippedTags
     If payload.TagCount <= 0 Then Exit Sub
     ReDim outTags(1 To payload.TagCount)
-    Dim tType As String, ctxNorm As String, hits As Long, winIdx As Long, allowTbl As Boolean
+    Dim tType As String, ctxNorm As String, hits As Long, winIdx As Long, allowTbl As Boolean, allowFront As Boolean, allowRefZone As Boolean
     For i = 1 To payload.TagCount
         tType = UCase$(Trim$(payload.Tags(i).TagType))
         ctxNorm = ModPatchMatcher.NormalizeStr(payload.Tags(i).CtxText)
@@ -368,6 +469,8 @@ Public Sub PlanStylesAndTags(ByRef payload As PatchPayload, ByRef paras() As Sca
             AppendWarnNote outStats, "@TAG L" & payload.Tags(i).LineNo & ": Invalid TYPE or empty CTX"
         Else
             allowTbl = (tType = "FIG" Or tType = "SKIP" Or tType = "CLEAR")
+            allowFront = (tType = "CLEAR" Or contentStartParaIdx <= 0)
+            allowRefZone = (tType = "REF" Or tType = "REF_SUB" Or tType = "APP" Or tType = "CLEAR")
             Dim passTier As Long, isMatch As Boolean
             hits = 0
             winIdx = 0
@@ -375,7 +478,8 @@ Public Sub PlanStylesAndTags(ByRef payload As PatchPayload, ByRef paras() As Sca
                 hits = 0
                 winIdx = 0
                 For j = 1 To pCount
-                    If Not paras(j).IsInRefZone And Not paras(j).IsExcluded And ((Not paras(j).IsInTable) Or allowTbl) Then
+                    If (allowFront Or paras(j).ParaIndex > contentStartParaIdx) And _
+                       ((Not paras(j).IsInRefZone) Or allowRefZone) And Not paras(j).IsExcluded And ((Not paras(j).IsInTable) Or allowTbl) Then
                         isMatch = False
                         If passTier = 1 Then
                             isMatch = (StrComp(paras(j).NormText, ctxNorm, vbBinaryCompare) = 0)

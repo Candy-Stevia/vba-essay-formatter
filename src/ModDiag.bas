@@ -76,6 +76,16 @@ Private g_TimerT0 As Single
 Private g_LogPath As String
 Private g_RunId As String
 Private g_Enabled As Boolean
+Private m_Fso As Object
+
+Private Function GetDiagFso() As Object
+    On Error Resume Next
+    If m_Fso Is Nothing Then
+        Set m_Fso = CreateObject("Scripting.FileSystemObject")
+    End If
+    Set GetDiagFso = m_Fso
+    Err.Clear
+End Function
 
 Public Function GetBitness() As String
 #If Win64 Then
@@ -107,7 +117,19 @@ Public Sub DiagStart(ByVal doc As Document, Optional ByVal customRunId As String
         g_RunId = Format$(Now, "yyyymmdd_hhnnss")
     End If
     
-    g_LogPath = Environ$("TEMP") & "\academic_perf_" & g_RunId & ".log"
+    Dim fso As Object
+    Dim tempDir As String
+    Set fso = GetDiagFso()
+    If Not fso Is Nothing Then
+        tempDir = CStr(fso.GetSpecialFolder(2).Path)
+    End If
+    If Len(tempDir) = 0 Then
+        tempDir = Environ$("TEMP")
+    End If
+    If Right$(tempDir, 1) = "\" Then
+        tempDir = Left$(tempDir, Len(tempDir) - 1)
+    End If
+    g_LogPath = tempDir & "\academic_perf_" & g_RunId & ".log"
     
     Dim pCount As Long
     Dim tCount As Long
@@ -169,11 +191,16 @@ Public Sub DiagLog(ByVal phaseName As String)
     logLine = Format$(elapsedSec, "0.000") & "s | ws=" & _
               wsStr & " | priv=" & privStr & " | " & phaseName
               
-    Dim fNum As Integer
-    fNum = FreeFile
-    Open g_LogPath For Append As #fNum
-    Print #fNum, logLine
-    Close #fNum
+    Dim fso As Object
+    Dim ts As Object
+    Set fso = GetDiagFso()
+    If Not fso Is Nothing Then
+        Set ts = fso.OpenTextFile(g_LogPath, 8, True, -1)
+        If Not ts Is Nothing Then
+            ts.WriteLine logLine
+            ts.Close
+        End If
+    End If
     On Error GoTo 0
 End Sub
 
@@ -205,8 +232,20 @@ Private Sub GetProcessMemoryStrings(ByRef outWsStr As String, ByRef outPrivStr A
     hProc = GetCurrentProcess()
     
     If GetProcessMemoryInfo(hProc, pmc, pmc.cb) <> 0 Then
-        outWsStr = Format$(CDbl(pmc.WorkingSetSize) / 1048576#, "0.0") & "MB"
-        outPrivStr = Format$(CDbl(pmc.PrivateUsage) / 1048576#, "0.0") & "MB"
+        Dim wsBytes As Double
+        Dim privBytes As Double
+        wsBytes = CDbl(pmc.WorkingSetSize)
+        privBytes = CDbl(pmc.PrivateUsage)
+        #If Not Win64 Then
+        If wsBytes < 0# Then
+            wsBytes = wsBytes + 4294967296#
+        End If
+        If privBytes < 0# Then
+            privBytes = privBytes + 4294967296#
+        End If
+        #End If
+        outWsStr = Format$(wsBytes / 1048576#, "0.0") & "MB"
+        outPrivStr = Format$(privBytes / 1048576#, "0.0") & "MB"
     End If
     On Error GoTo 0
 End Sub

@@ -32,6 +32,27 @@ Public Function ToRomanLowerCase(ByVal num As Long) As String
     ToRomanLowerCase = res
 End Function
 
+Private Function IntToAlphaPage(ByVal n As Long, ByVal isUpper As Boolean) As String
+    If n <= 0 Then
+        IntToAlphaPage = CStr(n)
+        Exit Function
+    End If
+    Dim baseCode As Long, cNum As Long, remVal As Long, res As String
+    If isUpper Then
+        baseCode = 65
+    Else
+        baseCode = 97
+    End If
+    cNum = n
+    res = ""
+    Do While cNum > 0
+        remVal = (cNum - 1) Mod 26
+        res = Chr$(baseCode + remVal) & res
+        cNum = (cNum - 1) \ 26
+    Loop
+    IntToAlphaPage = res
+End Function
+
 Public Sub ResetSectionStyleCache()
     mSecCacheActive = False
     mSecCap = 0
@@ -103,6 +124,10 @@ Public Function GetFormattedPageNumber(ByVal targetRng As Range, ByVal pageMode 
             GetFormattedPageNumber = UCase$(ToRomanLowerCase(pNum))
         Case 2 ' wdPageNumberStyleLowercaseRoman = 2
             GetFormattedPageNumber = ToRomanLowerCase(pNum)
+        Case 3 ' wdPageNumberStyleUppercaseLetter = 3
+            GetFormattedPageNumber = IntToAlphaPage(pNum, True)
+        Case 4 ' wdPageNumberStyleLowercaseLetter = 4
+            GetFormattedPageNumber = IntToAlphaPage(pNum, False)
         Case Else
             GetFormattedPageNumber = CStr(pNum)
     End Select
@@ -122,7 +147,21 @@ Public Function CalculateRightTab(ByVal doc As Document, Optional ByVal targetRn
     If ps Is Nothing Then
         If doc.Sections.Count >= 1 Then Set ps = doc.Sections(1).PageSetup Else Set ps = doc.PageSetup
     End If
-    Dim w As Single
+    Dim w As Single, colCnt As Long, colW As Single
+    colCnt = 1
+    colW = 0#
+    On Error Resume Next
+    colCnt = ps.TextColumns.Count
+    If Err.Number = 0 And colCnt > 1 Then
+        colW = ps.TextColumns(1).Width
+        If Err.Number <> 0 Then colW = 0#
+    End If
+    Err.Clear
+    On Error GoTo FallbackTab
+    If colCnt > 1 And colW > 10# And colW < 2000# Then
+        CalculateRightTab = colW
+        Exit Function
+    End If
     w = ps.PageWidth - ps.LeftMargin - ps.RightMargin
     If ps.Gutter > 0 And ps.GutterPos <> 1 Then
         w = w - ps.Gutter
@@ -153,6 +192,7 @@ Public Sub ApplyListLineFormat(ByVal rng As Range, _
                                ByVal tabPos As Single, _
                                ByVal leftIndentPts As Single, _
                                ByVal isBold As Boolean)
+    ModFormatSingle.EnsureOutlineLevelDetachHeading rng.Document, rng, 10
     rng.HighlightColorIndex = 0 ' wdNoHighlight = 0
     With rng.Font
         .Name = fontName
@@ -163,6 +203,7 @@ Public Sub ApplyListLineFormat(ByVal rng As Range, _
         .ColorIndex = 0
     End With
     With rng.ParagraphFormat
+        .Alignment = 0
         .LineSpacingRule = 0
         .SpaceBefore = 0
         .SpaceAfter = 0
@@ -171,8 +212,60 @@ Public Sub ApplyListLineFormat(ByVal rng As Range, _
         .TabStops.ClearAll
         .TabStops.Add Position:=tabPos, Alignment:=2, Leader:=1
     End With
-    ModFormatSingle.SafeSetOutlineLevel rng, 10
 End Sub
+
+Private Sub CaptureZoneBoundaries(ByVal doc As Document, ByRef zNames As Variant, _
+                                  ByRef outRngs() As Range, ByRef outPages() As Long, _
+                                  ByRef outVerts() As Single, ByRef outCnt As Long)
+    Dim k As Long, zName As String, zRng As Range, nextP As Paragraph, bRng As Range
+    Dim pg As Long, vPos As Single
+    outCnt = 0
+    On Error Resume Next
+    For k = LBound(zNames) To UBound(zNames)
+        zName = CStr(zNames(k))
+        If doc.Bookmarks.Exists(zName) Then
+            Err.Clear
+            Set zRng = doc.Bookmarks(zName).Range
+            Set nextP = Nothing
+            If zRng.Paragraphs.Count > 0 Then
+                Set nextP = zRng.Paragraphs(zRng.Paragraphs.Count).Next
+            End If
+            If Err.Number = 0 And Not nextP Is Nothing Then
+                Set bRng = nextP.Range.Duplicate
+                bRng.Collapse 1 ' wdCollapseStart = 1
+                pg = bRng.Information(3) ' wdActiveEndPageNumber = 3
+                vPos = bRng.Information(6) ' wdVerticalPositionRelativeToPage = 6
+                If Err.Number = 0 And pg > 0 Then
+                    outCnt = outCnt + 1
+                    Set outRngs(outCnt) = bRng
+                    outPages(outCnt) = pg
+                    outVerts(outCnt) = vPos
+                End If
+            End If
+            Err.Clear
+        End If
+    Next k
+End Sub
+
+Private Function AreZoneBoundariesStable(ByRef bRngs() As Range, ByRef bPages() As Long, _
+                                         ByRef bVerts() As Single, ByVal bCnt As Long) As Boolean
+    If bCnt <= 0 Then Exit Function
+    Dim k As Long, afterPg As Long, afterVert As Single
+    On Error Resume Next
+    For k = 1 To bCnt
+        Err.Clear
+        afterPg = bRngs(k).Information(3)
+        afterVert = bRngs(k).Information(6)
+        If Err.Number <> 0 Or afterPg <= 0 Then
+            Err.Clear
+            Exit Function
+        End If
+        If afterPg <> bPages(k) Or Abs(afterVert - bVerts(k)) >= 0.5# Then
+            Exit Function
+        End If
+    Next k
+    AreZoneBoundariesStable = True
+End Function
 
 Public Function SyncAllListPages(ByVal doc As Document, ByVal pageMode As Long) As Boolean
     On Error GoTo ErrHandler
@@ -208,6 +301,7 @@ Public Function SyncAllListPages(ByVal doc As Document, ByVal pageMode As Long) 
     Dim curZName As String
     Dim zRng As Range
     Dim p As Paragraph
+    Dim pRng As Range
     Dim pText As String
     Dim tabIdx As Long
     Dim oldNum As String
@@ -218,10 +312,11 @@ Public Function SyncAllListPages(ByVal doc As Document, ByVal pageMode As Long) 
         If doc.Bookmarks.Exists(curZName) Then
             Set zRng = doc.Bookmarks(curZName).Range
             For Each p In zRng.Paragraphs
-                If p.Range.Hyperlinks.Count > 0 Then
-                    targetBm = p.Range.Hyperlinks(1).SubAddress
+                Set pRng = p.Range
+                If pRng.Hyperlinks.Count > 0 Then
+                    targetBm = pRng.Hyperlinks(1).SubAddress
                     If Left$(targetBm, 3) = "bm_" And targetBm <> BM_SYS_GENERATED_BLOCK Then
-                        pText = p.Range.Text
+                        pText = pRng.Text
                         tabIdx = InStrRev(pText, vbTab)
                         If tabIdx > 0 Then
                             oldNum = Mid$(pText, tabIdx + 1)
@@ -230,7 +325,7 @@ Public Function SyncAllListPages(ByVal doc As Document, ByVal pageMode As Long) 
                                 validCount = validCount + 1
                                 bms(validCount) = targetBm
                                 oldVals(validCount) = oldNum
-                                Set pRngs(validCount) = p.Range
+                                Set pRngs(validCount) = pRng
                             End If
                         End If
                     End If
@@ -246,16 +341,25 @@ Public Function SyncAllListPages(ByVal doc As Document, ByVal pageMode As Long) 
     Dim i As Long
     Dim realPage As String
     Dim fRng As Range
+    Dim hlRng As Range
+    Dim tailRng As Range
+    Dim hlEnd As Long
+    Dim oldLen As Long
     Dim didReplace As Boolean
     Dim pass As Long
     Dim anyChangedInPass As Boolean
     Dim lastPassChanged As Boolean
     lastPassChanged = False
     Dim writeFailures As Long
+    Dim afterZoneRngs(1 To 3) As Range
+    Dim beforePage(1 To 3) As Long
+    Dim beforeVert(1 To 3) As Single
+    Dim zoneBoundCnt As Long
+    zoneBoundCnt = 0
     ResetSectionStyleCache
     mSecCacheActive = True
     
-    For pass = 1 To 2
+    For pass = 1 To 3
         anyChangedInPass = False
         writeFailures = 0
         
@@ -277,26 +381,55 @@ Public Function SyncAllListPages(ByVal doc As Document, ByVal pageMode As Long) 
             End If
         Next i
         
-        ' Phase B: Batch Write changed page numbers across all zones (trailing tab-to-end sub-range)
+        If pass = 1 Then
+            CaptureZoneBoundaries doc, zNames, afterZoneRngs, beforePage, beforeVert, zoneBoundCnt
+        End If
+        
+        ' Phase B: Batch Write changed page numbers across all zones (hyperlink tail-slice fast-path + Find fallback)
         For i = 1 To validCount
             If oldVals(i) <> newVals(i) Then
                 Dim entryReplaced As Boolean
                 entryReplaced = False
                 If Not pRngs(i) Is Nothing Then
-                    Set fRng = pRngs(i).Duplicate
-                    fRng.Find.ClearFormatting
-                    fRng.Find.Replacement.ClearFormatting
-                    didReplace = fRng.Find.Execute(FindText:=vbTab & oldVals(i), _
-                                                   MatchCase:=False, MatchWholeWord:=False, _
-                                                   MatchWildcards:=False, Forward:=False, Wrap:=0, _
-                                                   Format:=False)
-                    If didReplace Then
-                        If fRng.Start >= pRngs(i).Start And fRng.End <= pRngs(i).End Then
-                            fRng.Start = fRng.Start + 1
-                            fRng.Text = newVals(i)
-                            anyChangedInPass = True
-                            oldVals(i) = newVals(i)
-                            entryReplaced = True
+                    If pRngs(i).Hyperlinks.Count = 1 Then
+                        Set hlRng = pRngs(i).Hyperlinks(1).Range
+                        hlEnd = hlRng.End
+                        oldLen = Len(oldVals(i))
+                        If hlEnd - oldLen >= hlRng.Start Then
+                            Set tailRng = doc.Range(hlEnd - oldLen, hlEnd)
+                            If tailRng.Text = oldVals(i) Then
+                                tailRng.Text = newVals(i)
+                                anyChangedInPass = True
+                                oldVals(i) = newVals(i)
+                                entryReplaced = True
+                            End If
+                        End If
+                        If (Not entryReplaced) And (hlEnd - 1 - oldLen >= hlRng.Start) Then
+                            Set tailRng = doc.Range(hlEnd - 1 - oldLen, hlEnd - 1)
+                            If tailRng.Text = oldVals(i) Then
+                                tailRng.Text = newVals(i)
+                                anyChangedInPass = True
+                                oldVals(i) = newVals(i)
+                                entryReplaced = True
+                            End If
+                        End If
+                    End If
+                    If Not entryReplaced Then
+                        Set fRng = pRngs(i).Duplicate
+                        ModMathHelpers.InitDomFind fRng.Find, vbTab & oldVals(i)
+                        fRng.Find.Replacement.ClearFormatting
+                        didReplace = fRng.Find.Execute(FindText:=vbTab & oldVals(i), _
+                                                       MatchCase:=False, MatchWholeWord:=False, _
+                                                       MatchWildcards:=False, Forward:=False, Wrap:=0, _
+                                                       Format:=False)
+                        If didReplace Then
+                            If fRng.Start >= pRngs(i).Start And fRng.End <= pRngs(i).End Then
+                                fRng.Start = fRng.Start + 1
+                                fRng.Text = newVals(i)
+                                anyChangedInPass = True
+                                oldVals(i) = newVals(i)
+                                entryReplaced = True
+                            End If
                         End If
                     End If
                 End If
@@ -317,13 +450,20 @@ Public Function SyncAllListPages(ByVal doc As Document, ByVal pageMode As Long) 
             Exit For
         End If
         
-        ' Repaginate before Pass 2 to calculate any layout shifts caused by digit alterations
-        If pass < 2 Then
+        If pass = 1 And zoneBoundCnt > 0 Then
+            If AreZoneBoundariesStable(afterZoneRngs, beforePage, beforeVert, zoneBoundCnt) Then
+                lastPassChanged = False
+                Exit For
+            End If
+        End If
+        
+        ' Repaginate before next pass to calculate any layout shifts caused by digit alterations
+        If pass < 3 Then
             doc.Repaginate
         End If
     Next pass
     
-    ' Phase C: Read-Only Verification if Pass 2 produced changes (zero extra writes)
+    ' Phase C: Read-Only Verification if Pass 3 produced changes (zero extra writes)
     If lastPassChanged Then
         doc.Repaginate
         Dim hasResidual As Boolean
@@ -340,7 +480,7 @@ Public Function SyncAllListPages(ByVal doc As Document, ByVal pageMode As Long) 
         Next i
         If hasResidual Then
             ModConstants.g_SilentErrors = ModConstants.g_SilentErrors + 1
-            ModRibbonCallbacks.g_LastError = "Page sync bounded at 2 passes; residual page shift detected."
+            ModRibbonCallbacks.g_LastError = "Page sync bounded at 3 passes; residual page shift detected."
             SyncAllListPages = False
         End If
     End If
@@ -356,14 +496,41 @@ End Function
 
 Public Function ApplyEqTagAndWrapRange(ByVal doc As Document, ByVal om As OMath, ByVal eqTag As String) As Range
     Dim dispTag As String, rTab As Single, bStart As Long, tagRng As Range
+    Dim cWidth As Single, padL As Single, padR As Single, cellErr As Long
     If Left$(eqTag, 1) = "(" And Right$(eqTag, 1) = ")" Then
         dispTag = eqTag
     Else
         dispTag = "(" & eqTag & ")"
     End If
     If om.Range.Information(12) Then
-        rTab = om.Range.Cells(1).Width - 10#
-        If rTab < 40# Or rTab > 2000# Then rTab = CalculateRightTab(doc, om.Range)
+        cWidth = 0#
+        padL = 0#
+        padR = 0#
+        On Error Resume Next
+        cWidth = om.Range.Cells(1).Width
+        cellErr = Err.Number
+        If cellErr = 0 Then
+            padL = om.Range.Cells(1).LeftPadding
+            If Err.Number <> 0 Or padL < 0# Or padL > 100# Then
+                Err.Clear
+                padL = 5.4!
+            End If
+            padR = om.Range.Cells(1).RightPadding
+            If Err.Number <> 0 Or padR < 0# Or padR > 100# Then
+                Err.Clear
+                padR = 5.4!
+            End If
+        End If
+        Err.Clear
+        On Error GoTo 0
+        If cellErr <> 0 Or cWidth >= 999999# Or cWidth <= 0# Then
+            rTab = CalculateRightTab(doc, om.Range) / 2#
+        Else
+            rTab = cWidth - padL - padR - 2#
+            If rTab < 40# Or rTab > 2000# Then
+                rTab = CalculateRightTab(doc, om.Range) / 2#
+            End If
+        End If
     Else
         rTab = CalculateRightTab(doc, om.Range)
     End If

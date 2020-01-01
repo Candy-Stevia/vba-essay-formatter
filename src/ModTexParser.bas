@@ -25,7 +25,7 @@ Private Function ParseArgumentCore() As Long
     Dim nd As Long
     Dim ch As String
 
-    If ModTexAst.CurTok().TokType = TOK_LBRACE Then
+    If ModTexAst.CurTokType() = TOK_LBRACE Then
         ParseArgumentCore = ModTexAst.ParseGroup()
         Exit Function
     End If
@@ -44,7 +44,7 @@ Private Function ParseArgumentCore() As Long
             ParseArgumentCore = nd
             Exit Function
         End If
-        ParseArgumentCore = ModTexParserCmds.ParseCommand(tok.Val)
+        ParseArgumentCore = ModTexParserCmds.ParseCommand(tok.Val, False)
         Exit Function
     End If
 
@@ -69,6 +69,7 @@ Public Function ParseGroupCore() As Long
     Dim pNode As Long
     Dim listNode As Long
     Dim prevPos As Long
+    Dim tt As Integer
 
     ModTexAst.mDepth = ModTexAst.mDepth + 1
     If ModTexAst.mDepth > ModTexAst.MAX_DEPTH Then
@@ -81,13 +82,16 @@ Public Function ParseGroupCore() As Long
     ModTexAst.ExpectTok TOK_LBRACE
     Set items = New Collection
 
-    Do While ModTexAst.CurTok().TokType <> TOK_EOF And ModTexAst.CurTok().TokType <> TOK_RBRACE
+    Do
+        tt = ModTexAst.CurTokType()
+        If tt = TOK_EOF Or tt = TOK_RBRACE Then Exit Do
         prevPos = ModTexAst.mPos
         pNode = ParsePrimary()
         If pNode <> 0 Then
             items.Add pNode
-        Else
-            If ModTexAst.mPos = prevPos And ModTexAst.CurTok().TokType <> TOK_EOF And ModTexAst.CurTok().TokType <> TOK_RBRACE Then
+        ElseIf ModTexAst.mPos = prevPos Then
+            tt = ModTexAst.CurTokType()
+            If tt <> TOK_EOF And tt <> TOK_RBRACE Then
                 ModTexAst.AdvanceTok
             End If
         End If
@@ -105,13 +109,14 @@ Private Function ParseDelimInner(ByVal closeType As Integer, ByVal closeVal As S
     Dim p As Long
     Dim prevPos As Long
     Dim bodyNode As Long
-    Dim curT As TexToken
+    Dim tt As Integer
 
     Set inner = New Collection
-    Do While ModTexAst.CurTok().TokType <> TOK_EOF
-        curT = ModTexAst.CurTok()
-        If curT.TokType = closeType Then
-            If Len(closeVal) = 0 Or curT.Val = closeVal Then
+    Do
+        tt = ModTexAst.CurTokType()
+        If tt = TOK_EOF Then Exit Do
+        If tt = closeType Then
+            If Len(closeVal) = 0 Or ModTexAst.mTokens(ModTexAst.mPos).Val = closeVal Then
                 Exit Do
             End If
         End If
@@ -119,8 +124,10 @@ Private Function ParseDelimInner(ByVal closeType As Integer, ByVal closeVal As S
         p = ParsePrimary()
         If p <> 0 Then
             inner.Add p
-        ElseIf ModTexAst.mPos = prevPos And ModTexAst.CurTok().TokType <> TOK_EOF Then
-            ModTexAst.AdvanceTok
+        ElseIf ModTexAst.mPos = prevPos Then
+            If ModTexAst.CurTokType() <> TOK_EOF Then
+                ModTexAst.AdvanceTok
+            End If
         End If
     Loop
     bodyNode = ModTexAst.AllocNode(AST_LIST)
@@ -237,7 +244,7 @@ Private Function ParsePrimaryCore() As Long
     End If
 
     ' Unknown or unhandled token -> advance to prevent infinite loop and flag ambiguous
-    If ModTexAst.CurTok().TokType <> TOK_EOF Then
+    If ModTexAst.CurTokType() <> TOK_EOF Then
         ModTexAst.AdvanceTok
     End If
     ModTexAst.SetAmbiguous True
@@ -261,23 +268,24 @@ Private Function ParseExpressionCore(ByVal stopTokType As Integer) As Long
     Dim p As Long
     Dim prevPos As Long
     Dim listNode As Long
-    Dim curT As TexToken
+    Dim tt As Integer
 
     Set items = New Collection
-    Do While ModTexAst.CurTok().TokType <> TOK_EOF
-        curT = ModTexAst.CurTok()
-        If stopTokType <> 0 And curT.TokType = stopTokType Then
+    Do
+        tt = ModTexAst.CurTokType()
+        If tt = TOK_EOF Then Exit Do
+        If stopTokType <> 0 And tt = stopTokType Then
             Exit Do
         End If
-        If curT.TokType = TOK_RBRACE Or curT.TokType = TOK_AMP Or curT.TokType = TOK_NEWLINE Then
+        If tt = TOK_RBRACE Or tt = TOK_AMP Or tt = TOK_NEWLINE Then
             Exit Do
         End If
         prevPos = ModTexAst.mPos
         p = ParsePrimary()
         If p <> 0 Then
             items.Add p
-        Else
-            If ModTexAst.mPos = prevPos And ModTexAst.CurTok().TokType <> TOK_EOF Then
+        ElseIf ModTexAst.mPos = prevPos Then
+            If ModTexAst.CurTokType() <> TOK_EOF Then
                 ModTexAst.AdvanceTok
             End If
         End If
@@ -292,7 +300,7 @@ Public Function ParseLatex(ByVal text As String, ByVal isBlock As Boolean, ByRef
     ModTexAst.ResetArena isBlock
     ModTexLexer.TokenizeLatex text
     outRoot = ParseExpression(0)
-    If ModTexAst.CurTok().TokType <> TOK_EOF Then
+    If ModTexAst.CurTokType() <> TOK_EOF Then
         ModTexAst.SetAmbiguous True
     End If
     outIsAmbiguous = ModTexAst.mIsAmbiguous

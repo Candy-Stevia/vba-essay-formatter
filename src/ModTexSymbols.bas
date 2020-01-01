@@ -168,32 +168,36 @@ Public Function IsNamedFunction(ByVal nameStr As String) As Boolean
 End Function
 
 Public Function IsOperatorChar(ByVal ch As String) As Boolean
-    Select Case ch
-        Case "+", "-", "=", "<", ">", "*", "/", ","
+    Dim code As Long
+    If Len(ch) <> 1 Then Exit Function
+    code = AscW(ch) And &HFFFF&
+    If (code >= 48 And code <= 57) Or (code >= 65 And code <= 90) Or (code >= 97 And code <= 122) Then
+        Exit Function
+    End If
+    Select Case code
+        Case 42, 43, 44, 45, 47, 60, 61, 62 ' * + , - / < = >
             IsOperatorChar = True
-        Case ChrW(&H2212) ' Minus sign
+        Case &H2212&, &HD7&, &HF7&, &H22C5&, &HB1&, &H2213& ' minus, times, div, cdot, pm, mp
             IsOperatorChar = True
-        Case ChrW(&HD7), ChrW(&HF7) ' Times, Divide
+        Case &H2264&, &H2265&, &H2260&, &H2248& ' le, ge, ne, approx
             IsOperatorChar = True
-        Case ChrW(&H2264), ChrW(&H2265), ChrW(&H2260), ChrW(&H2248) ' le, ge, ne, approx
+        Case &H2208&, &H2209&, &H2192& ' in, notin, rightarrow
             IsOperatorChar = True
-        Case ChrW(&H2208), ChrW(&H2209), ChrW(&H2192) ' in, notin, rightarrow
+        Case &H2223&, &H2225&, &H223C& ' mid, parallel, sim
             IsOperatorChar = True
-        Case ChrW(&H2223), ChrW(&H2225), ChrW(&H223C) ' mid, parallel, sim
+        Case &H2218&, &H2295&, &H2297&, &H22A5& ' circ, oplus, otimes, perp
             IsOperatorChar = True
-        Case ChrW(&H2218), ChrW(&H2295), ChrW(&H2297), ChrW(&H22A5) ' circ, oplus, otimes, perp
+        Case &H2261&, &H221D&, &H2245&, &H2243&, &H2216& ' equiv, propto, cong, simeq, setminus
             IsOperatorChar = True
-        Case ChrW(&H2261), ChrW(&H221D), ChrW(&H2245), ChrW(&H2243), ChrW(&H2216) ' equiv, propto, cong, simeq, setminus
+        Case &H222A&, &H2229&, &H2282&, &H2286&, &H2283&, &H2287& ' cup, cap, sub, sube, sup, supe
             IsOperatorChar = True
-        Case ChrW(&H222A), ChrW(&H2229), ChrW(&H2282), ChrW(&H2286), ChrW(&H2283), ChrW(&H2287) ' cup, cap, sub, sube, sup, supe
+        Case &H2262&, &H2284&, &H2288&, &H2249&, &H2241& ' nequiv, nsub, nsube, napprox, nsim
             IsOperatorChar = True
-        Case ChrW(&H2262), ChrW(&H2284), ChrW(&H2288), ChrW(&H2249), ChrW(&H2241) ' nequiv, nsub, nsube, napprox, nsim
+        Case &H226E&, &H226F&, &H2270&, &H2271& ' nless, ngtr, nleq, ngeq
             IsOperatorChar = True
-        Case ChrW(&H226E), ChrW(&H226F), ChrW(&H2270), ChrW(&H2271) ' nless, ngtr, nleq, ngeq
+        Case &H2190&, &H2194&, &H21A6&, &H21D0&, &H21D2&, &H21D4&, &H27F9&, &H27FA& ' arrows
             IsOperatorChar = True
-        Case ChrW(&H2190), ChrW(&H2194), ChrW(&H21A6), ChrW(&H21D0), ChrW(&H21D2), ChrW(&H21D4), ChrW(&H27F9), ChrW(&H27FA) ' arrows
-            IsOperatorChar = True
-        Case ChrW(&H2227), ChrW(&H2228), ChrW(&HAC), ChrW(&H226A), ChrW(&H226B) ' land, lor, neg, ll, gg
+        Case &H2227&, &H2228&, &HAC&, &H226A&, &H226B& ' land, lor, neg, ll, gg
             IsOperatorChar = True
         Case Else
             IsOperatorChar = False
@@ -240,10 +244,58 @@ Public Function EscapeXml(ByVal s As String) As String
     Dim nextCode As Long
     Dim parts() As String
     Dim pCount As Long
+    Dim needsWork As Boolean
 
     n = Len(s)
     If n = 0 Then
         EscapeXml = ""
+        Exit Function
+    End If
+    If n = 1 Then
+        code = AscW(s) And &HFFFF&
+        Select Case code
+            Case 38
+                EscapeXml = "&amp;"
+            Case 60
+                EscapeXml = "&lt;"
+            Case 62
+                EscapeXml = "&gt;"
+            Case 34
+                EscapeXml = "&quot;"
+            Case 39
+                EscapeXml = "&apos;"
+            Case 9, 10, 13
+                EscapeXml = s
+            Case Is < 32, &HFFFE&, &HFFFF&, &HD800& To &HDFFF&
+                EscapeXml = ""
+            Case Else
+                EscapeXml = s
+        End Select
+        Exit Function
+    End If
+    needsWork = False
+    i = 1
+    Do While i <= n
+        code = AscW(Mid$(s, i, 1)) And &HFFFF&
+        If code = 38 Or code = 60 Or code = 62 Or code = 34 Or code = 39 Then
+            needsWork = True
+            Exit Do
+        ElseIf code < 32 Then
+            If code <> 9 And code <> 10 And code <> 13 Then
+                needsWork = True
+                Exit Do
+            End If
+        ElseIf code >= &HD800& And code <= &HDFFF& Then
+            needsWork = True
+            Exit Do
+        ElseIf code = &HFFFE& Or code = &HFFFF& Then
+            needsWork = True
+            Exit Do
+        End If
+        i = i + 1
+    Loop
+    If Not needsWork Then
+        EscapeXml = s
         Exit Function
     End If
     ReDim parts(1 To n)

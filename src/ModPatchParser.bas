@@ -20,6 +20,8 @@ Public Type PatchCiteItem
     FindText As String
     FixText As String
     HasFix As Boolean
+    MatchMode As String
+    NearText As String
     LineNo As Long
 End Type
 
@@ -226,6 +228,10 @@ Private Sub ParseCiteField(ByVal trimmed As String, ByVal lineNo As Long, ByRef 
     ElseIf ExtractFieldValue(trimmed, "FIX:") Or ExtractFieldValue(trimmed, "NEW:") Then
         cItem.FixText = Trim$(Mid$(trimmed, 5))
         cItem.HasFix = (Len(cItem.FixText) > 0)
+    ElseIf ExtractFieldValue(trimmed, "MATCH:") Then
+        cItem.MatchMode = UCase$(Trim$(Mid$(trimmed, 7)))
+    ElseIf ExtractFieldValue(trimmed, "NEAR:") Then
+        cItem.NearText = Trim$(Mid$(trimmed, 6))
     End If
 End Sub
 
@@ -245,7 +251,7 @@ Private Sub StripFenceAndNormalizeLines(ByVal rawText As String, ByRef outLines(
     Dim norm As String, arr() As String, firstIdx As Long, lastIdx As Long, t As String
     norm = Replace(Replace(rawText, vbCrLf, vbLf), vbCr, vbLf)
     If Len(norm) > 0 Then
-        If AscW(Left$(norm, 1)) = &HFEFF Then norm = Mid$(norm, 2)
+        If (AscW(Left$(norm, 1)) And &HFFFF&) = &HFEFF& Then norm = Mid$(norm, 2)
     End If
     arr = Split(norm, vbLf)
     firstIdx = LBound(arr)
@@ -299,7 +305,13 @@ Public Function ParseAiPatch(ByVal rawInput As String, ByRef outPatch As PatchPa
     For idx = LBound(lines) To UBound(lines)
         trimmed = Trim$(lines(idx))
         up = UCase$(trimmed)
-        If Left$(trimmed, 3) = "```" Or Left$(trimmed, 3) = "~~~" Then GoTo NextLn
+        If Left$(trimmed, 3) = "```" Or Left$(trimmed, 3) = "~~~" Then
+            If started Then
+                FlushOpenBlock curMode, curCite, curFix, curTag, hasOpenCite, hasOpenFix, hasOpenTag, outPatch
+                Exit For
+            End If
+            GoTo NextLn
+        End If
         If Left$(up, 12) = "=== AF-PATCH" Then
             started = True
             outPatch.HasHeader = True
@@ -351,13 +363,20 @@ Public Function ParseAiPatch(ByVal rawInput As String, ByRef outPatch As PatchPa
                 curTag.CtxText = Trim$(Mid$(trimmed, 5))
             End If
         ElseIf curMode = "@CITE" Then
-            If ExtractFieldValue(trimmed, "REF:") And Len(curCite.RefKey) > 0 Then
+            If (ExtractFieldValue(trimmed, "REF:") And Len(curCite.RefKey) > 0) Or _
+               (ExtractFieldValue(trimmed, "CTX:") And Len(curCite.CtxText) > 0) Or _
+               (ExtractFieldValue(trimmed, "FIND:") And Len(curCite.FindText) > 0) Or _
+               ((ExtractFieldValue(trimmed, "FIX:") Or ExtractFieldValue(trimmed, "NEW:")) And curCite.HasFix) Or _
+               (ExtractFieldValue(trimmed, "MATCH:") And Len(curCite.MatchMode) > 0) Or _
+               (ExtractFieldValue(trimmed, "NEAR:") And Len(curCite.NearText) > 0) Then
                 FlushOpenBlock curMode, curCite, curFix, curTag, hasOpenCite, hasOpenFix, hasOpenTag, outPatch
                 hasOpenCite = True
             End If
             ParseCiteField trimmed, idx + 1, curCite, hasOpenCite
         ElseIf curMode = "@FIX" Or curMode = "@STRUCT" Then
-            If ExtractFieldValue(trimmed, "CTX:") And Len(curFix.CtxText) > 0 Then
+            If (ExtractFieldValue(trimmed, "CTX:") And Len(curFix.CtxText) > 0) Or _
+               (ExtractFieldValue(trimmed, "FIND:") And Len(curFix.FindText) > 0) Or _
+               ((ExtractFieldValue(trimmed, "NEW:") Or ExtractFieldValue(trimmed, "FIX:")) And Len(curFix.NewText) > 0) Then
                 FlushOpenBlock curMode, curCite, curFix, curTag, hasOpenCite, hasOpenFix, hasOpenTag, outPatch
                 hasOpenFix = True
             End If

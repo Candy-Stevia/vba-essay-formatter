@@ -38,18 +38,35 @@ End Type
 Private Const MAX_HEADING_LEN As Long = 350
 
 Public Sub InitQuickRegexPool(ByRef pool As QuickRegexPool)
-    Set pool.ReL1 = CreateRegex(ModLocale.GetPatternLevel1())
-    Set pool.ReL2 = CreateRegex(ModConstants.GetPatternLevel2())
-    Set pool.ReL3 = CreateRegex(ModConstants.GetPatternLevel3())
-    Set pool.ReL4 = CreateRegex(ModConstants.GetPatternLevel4())
-    Set pool.ReTbl = CreateRegex(ModLocale.GetPatternTable())
-    Set pool.ReFig = CreateRegex(ModLocale.GetPatternFigure())
-    Set pool.ReSrc = CreateRegex(ModLocale.GetPatternSourceNote())
-    Set pool.ReMrk = CreateRegex(ModConstants.GetPatternMarker())
-    Set pool.ReManToc = CreateRegex(ModLocale.GetPatternManualToc())
-    Set pool.ReManLot = CreateRegex(ModLocale.GetPatternManualLot())
-    Set pool.ReManLof = CreateRegex(ModLocale.GetPatternManualLof())
+    Static cached As QuickRegexPool
+    Static isInit As Boolean
+    If Not isInit Then
+        Set cached.ReL1 = CreateRegex(ModLocale.GetPatternLevel1())
+        Set cached.ReL2 = CreateRegex(ModConstants.GetPatternLevel2())
+        Set cached.ReL3 = CreateRegex(ModConstants.GetPatternLevel3())
+        Set cached.ReL4 = CreateRegex(ModConstants.GetPatternLevel4())
+        Set cached.ReTbl = CreateRegex(ModLocale.GetPatternTable())
+        Set cached.ReFig = CreateRegex(ModLocale.GetPatternFigure())
+        Set cached.ReSrc = CreateRegex(ModLocale.GetPatternSourceNote())
+        Set cached.ReMrk = CreateRegex(ModConstants.GetPatternMarker())
+        Set cached.ReManToc = CreateRegex(ModLocale.GetPatternManualToc())
+        Set cached.ReManLot = CreateRegex(ModLocale.GetPatternManualLot())
+        Set cached.ReManLof = CreateRegex(ModLocale.GetPatternManualLof())
+        isInit = True
+    End If
+    pool = cached
 End Sub
+
+Private Function StripRareControls(ByVal s As String) As String
+    If InStr(1, s, Chr(7)) > 0 Then s = Replace(s, Chr(7), "")
+    If InStr(1, s, Chr(1)) > 0 Then s = Replace(s, Chr(1), "")
+    If InStr(1, s, Chr(12)) > 0 Then s = Replace(s, Chr(12), "")
+    If InStr(1, s, Chr(2)) > 0 Then s = Replace(s, Chr(2), "")
+    If InStr(1, s, Chr(5)) > 0 Then s = Replace(s, Chr(5), "")
+    If InStr(1, s, Chr(10)) > 0 Then s = Replace(s, Chr(10), " ")
+    If InStr(1, s, vbTab) > 0 Then s = Replace(s, vbTab, " ")
+    StripRareControls = s
+End Function
 
 Public Sub CollectOldListRanges(ByVal doc As Document, ByRef exclStarts() As Long, ByRef exclEnds() As Long, ByRef outNum As Long)
     outNum = doc.TablesOfContents.Count + doc.TablesOfFigures.Count
@@ -105,12 +122,24 @@ Public Function IsLayoutFigureCaption(ByVal rng As Range, ByVal cleanText As Str
     If regEx.Pattern <> patFig Then regEx.Pattern = patFig
     If regEx.Test(cleanText) Then
         If rng.Tables.Count > 0 Then
-            If rng.Tables(1).Range.InlineShapes.Count > 0 Then
-                IsLayoutFigureCaption = True
+            Dim tbl As Table
+            Set tbl = rng.Tables(1)
+            If tbl.Rows.Count <= 3 And tbl.Range.Cells.Count <= 4 Then
+                If tbl.Range.InlineShapes.Count > 0 Then
+                    IsLayoutFigureCaption = True
+                End If
             End If
         End If
     End If
     If Err.Number <> 0 Then Err.Clear
+End Function
+
+Private Function IsParaInListSafe(ByVal rng As Range, ByVal rStart As Long, ByVal listIdxValid As Boolean) As Boolean
+    If listIdxValid Then
+        IsParaInListSafe = ModTableIndex.IsPosInList(rStart)
+    Else
+        IsParaInListSafe = (rng.ListFormat.ListType <> 0)
+    End If
 End Function
 
 ' --- Phase 1: Read-Only Document Snapshot Scanner ---
@@ -123,20 +152,22 @@ Public Function ScanDocumentSnapshot(ByVal doc As Document, _
     Dim patFig As String
     patFig = ModLocale.GetPatternFigure()
     
+    Dim pool As QuickRegexPool
+    InitQuickRegexPool pool
     Dim reL1 As Object, reL2 As Object, reL3 As Object, reL4 As Object
     Dim reTbl As Object, reFig As Object, reSrc As Object, reMarker As Object
     Dim reToc As Object, reLot As Object, reLof As Object
-    Set reL1 = CreateRegex(ModLocale.GetPatternLevel1())
-    Set reToc = CreateRegex(ModLocale.GetPatternManualToc())
-    Set reLot = CreateRegex(ModLocale.GetPatternManualLot())
-    Set reLof = CreateRegex(ModLocale.GetPatternManualLof())
-    Set reL2 = CreateRegex(ModConstants.GetPatternLevel2())
-    Set reL3 = CreateRegex(ModConstants.GetPatternLevel3())
-    Set reL4 = CreateRegex(ModConstants.GetPatternLevel4())
-    Set reTbl = CreateRegex(ModLocale.GetPatternTable())
-    Set reFig = CreateRegex(patFig)
-    Set reSrc = CreateRegex(ModLocale.GetPatternSourceNote())
-    Set reMarker = CreateRegex(ModConstants.GetPatternMarker())
+    Set reL1 = pool.ReL1
+    Set reToc = pool.ReManToc
+    Set reLot = pool.ReManLot
+    Set reLof = pool.ReManLof
+    Set reL2 = pool.ReL2
+    Set reL3 = pool.ReL3
+    Set reL4 = pool.ReL4
+    Set reTbl = pool.ReTbl
+    Set reFig = pool.ReFig
+    Set reSrc = pool.ReSrc
+    Set reMarker = pool.ReMrk
     
     Dim totalParas As Long
     totalParas = doc.Paragraphs.Count
@@ -147,9 +178,12 @@ Public Function ScanDocumentSnapshot(ByVal doc As Document, _
         Exit Function
     End If
     ReDim outSnapshots(1 To totalParas)
-    ModTableIndex.BuildTableIndex doc
-    ModTableIndex.BuildListIndex doc
-    ModTableIndex.BuildOMathIndex doc
+    ModTableIndex.EnsureTableIndex doc
+    ModTableIndex.EnsureListIndex doc
+    ModTableIndex.EnsureOMathIndex doc
+    Dim tblIdxValid As Boolean, listIdxValid As Boolean
+    tblIdxValid = ModTableIndex.IsTableIndexValidForDoc(doc)
+    listIdxValid = ModTableIndex.IsListIndexValidForDoc(doc)
     ModCustomProfile.LoadTagCache doc
     Dim hasTags As Boolean
     hasTags = ModCustomProfile.HasActiveTags()
@@ -157,9 +191,10 @@ Public Function ScanDocumentSnapshot(ByVal doc As Document, _
     Dim latexFlags() As Boolean
     ModLatex.ComputeLatexFlags doc, latexFlags, outLatexWarningCount
     
-    Dim docHasMath As Boolean, docHasInline As Boolean
+    Dim docHasMath As Boolean, docHasInline As Boolean, docHasLists As Boolean
     docHasMath = (doc.OMaths.Count > 0)
     docHasInline = (doc.InlineShapes.Count > 0)
+    docHasLists = (doc.ListParagraphs.Count > 0)
     
     Dim numExclRanges As Long, exclStarts() As Long, exclEnds() As Long
     numExclRanges = doc.TablesOfContents.Count + doc.TablesOfFigures.Count
@@ -184,22 +219,44 @@ Public Function ScanDocumentSnapshot(ByVal doc As Document, _
     Dim raw As String, clean As String, firstLine As String, hasSoft As Boolean
     Dim inContentZone As Boolean, inPostZone As Boolean
     Dim cleanLen As Long, isShortHeading As Boolean
+    Dim pOutLvl As Long, pListType As Long, listPfx As String
     
     i = 0
     For Each p In doc.Paragraphs
         i = i + 1
         ModProgress.ProgressUpdate i, totalParas
+        If ModProgress.g_CancelRequested Then Exit Function
         Set rng = p.Range
         raw = rng.Text
-        hasSoft = (InStr(raw, Chr(11)) > 0)
-        clean = Replace(Replace(Replace(Replace(raw, vbCr, ""), Chr(7), ""), Chr(1), ""), Chr(12), "")
-        clean = Trim$(Replace(Replace(Replace(clean, Chr(11), " "), Chr(10), " "), vbTab, " "))
-        cleanLen = Len(clean)
+        hasSoft = (InStr(1, raw, Chr(11)) > 0)
+        clean = StripRareControls(Replace(raw, vbCr, ""))
         If hasSoft Then
-            firstLine = Replace(Replace(Replace(raw, vbCr, ""), Chr(7), ""), Chr(12), "")
-            firstLine = Trim$(Replace(Replace(Split(firstLine, Chr(11))(0), Chr(10), " "), vbTab, " "))
+            firstLine = Trim$(Split(clean, Chr(11))(0))
+            clean = Trim$(Replace(clean, Chr(11), " "))
         Else
+            clean = Trim$(clean)
             firstLine = clean
+        End If
+        cleanLen = Len(clean)
+        If docHasLists And cleanLen > 0 And cleanLen <= MAX_HEADING_LEN Then
+            pOutLvl = 10
+            On Error Resume Next
+            pOutLvl = p.OutlineLevel
+            If Err.Number = 0 And pOutLvl <= 4 Then
+                pListType = rng.ListFormat.ListType
+                If Err.Number = 0 And pListType >= 3 Then
+                    listPfx = Trim$(rng.ListFormat.ListString)
+                    If Err.Number = 0 And Len(listPfx) > 0 Then
+                        If Left$(clean, Len(listPfx)) <> listPfx Then
+                            clean = listPfx & " " & clean
+                            firstLine = listPfx & " " & firstLine
+                            cleanLen = Len(clean)
+                        End If
+                    End If
+                End If
+            End If
+            Err.Clear
+            On Error GoTo 0
         End If
         
         outSnapshots(i).ParaIndex = i
@@ -261,7 +318,11 @@ Public Function ScanDocumentSnapshot(ByVal doc As Document, _
             Dim tagCode As Long, inTblPos As Boolean
             tagCode = 0
             If hasTags Then tagCode = ModCustomProfile.LookupTagForRange(outSnapshots(i).RangeStart, outSnapshots(i).RangeEnd)
-            inTblPos = ModTableIndex.IsPosInTable(outSnapshots(i).RangeStart)
+            If tblIdxValid Then
+                inTblPos = ModTableIndex.IsPosInTable(outSnapshots(i).RangeStart)
+            Else
+                inTblPos = CBool(rng.Information(12))
+            End If
             If isMathBlock Then
                 outSnapshots(i).IsExcluded = True
                 outSnapshots(i).ElementType = ElementTypeWordMath
@@ -269,6 +330,10 @@ Public Function ScanDocumentSnapshot(ByVal doc As Document, _
                 outSnapshots(i).IsExcluded = True
             ElseIf tagCode > 0 Then
                 outSnapshots(i).ElementType = tagCode
+            ElseIf tagCode = TAG_CODE_REF Or tagCode = TAG_CODE_APP Then
+                outSnapshots(i).ElementType = ElementTypeLevel1
+            ElseIf tagCode = TAG_CODE_REF_SUB Then
+                outSnapshots(i).ElementType = ElementTypeLevel2
             ElseIf tagCode = TAG_CODE_SKIP Then
                 If inTblPos Then
                     If inContentZone Or inPostZone Then outSnapshots(i).ElementType = ElementTypeTableCell
@@ -277,13 +342,13 @@ Public Function ScanDocumentSnapshot(ByVal doc As Document, _
                 Else
                     outSnapshots(i).ElementType = ElementTypeUnknown
                 End If
-            ElseIf ModTableIndex.IsPosInList(outSnapshots(i).RangeStart) Then
+            ElseIf IsParaInListSafe(rng, outSnapshots(i).RangeStart, listIdxValid) Then
                 outSnapshots(i).IsExcluded = True
                 outSnapshots(i).ElementType = ElementTypeList
             ElseIf inTblPos Then
                 Dim isLayFig As Boolean
                 isLayFig = False
-                If isShortHeading Then
+                If isShortHeading And docHasInline Then
                     isLayFig = IsLayoutFigureCaption(rng, clean, reFig, patFig)
                 End If
                 If isLayFig Then

@@ -25,6 +25,13 @@ End Type
 
 ' --- Marker Scanner & Validator ---
 
+Private Function CleanMarkerParaText(ByVal raw As String) As String
+    Dim s As String
+    s = Replace(Replace(Replace(Replace(raw, vbCr, ""), Chr(7), ""), Chr(11), ""), Chr(12), "")
+    s = Replace(Replace(Replace(s, Chr(1), ""), Chr(2), ""), Chr(5), "")
+    CleanMarkerParaText = LCase$(Trim$(s))
+End Function
+
 Private Function FindAllExactMarkerHits(ByVal doc As Document, ByVal markerLower As String, _
                                         ByVal displayName As String, ByVal isListMarker As Boolean, _
                                         ByRef outHas As Boolean, ByRef outIdx As Long, _
@@ -41,7 +48,7 @@ Private Function FindAllExactMarkerHits(ByVal doc As Document, ByVal markerLower
         If fRng.End <= prevEnd Then Exit Do
         prevEnd = fRng.End
         Set pRng = fRng.Paragraphs(1).Range
-        cleanText = LCase$(Trim$(Replace(Replace(Replace(pRng.Text, vbCr, ""), Chr(7), ""), Chr(11), "")))
+        cleanText = CleanMarkerParaText(pRng.Text)
         If cleanText = markerLower Then
             pIdx = doc.Range(0, pRng.End).Paragraphs.Count
             If CBool(pRng.Information(12)) Then
@@ -189,7 +196,7 @@ Public Sub HighlightMarkers(ByVal doc As Document)
             If fRng.End <= prevEnd Then Exit Do
             prevEnd = fRng.End
             Set pRng = fRng.Paragraphs(1).Range
-            If LCase$(Trim$(Replace(Replace(Replace(pRng.Text, vbCr, ""), Chr(7), ""), Chr(11), ""))) = CStr(mNames(k)) And Not CBool(pRng.Information(12)) Then
+            If CleanMarkerParaText(pRng.Text) = CStr(mNames(k)) And Not CBool(pRng.Information(12)) Then
                 pRng.HighlightColorIndex = 7
                 ModFormatSingle.SafeSetOutlineLevel pRng, 10
             End If
@@ -210,7 +217,7 @@ Public Function FindMarkerParagraph(ByVal doc As Document, ByVal markerText As S
         If fRng.End <= prevEnd Then Exit Do
         prevEnd = fRng.End
         Set pRng = fRng.Paragraphs(1).Range
-        If LCase$(Trim$(Replace(Replace(Replace(pRng.Text, vbCr, ""), Chr(7), ""), Chr(11), ""))) = markerText And Not CBool(pRng.Information(12)) Then
+        If CleanMarkerParaText(pRng.Text) = markerText And Not CBool(pRng.Information(12)) Then
             FindMarkerParagraph = doc.Range(0, pRng.End).Paragraphs.Count
             Exit Function
         End If
@@ -227,14 +234,17 @@ Public Sub NormalizeContentBreaks(ByVal doc As Document)
     
     Dim totalParas As Long
     totalParas = doc.Paragraphs.Count
-    Dim hasTables As Boolean, hasOMaths As Boolean
+    Dim hasTables As Boolean, hasOMaths As Boolean, hasLockedSdt As Boolean
     hasTables = (doc.Tables.Count > 0)
     hasOMaths = (doc.OMaths.Count > 0)
-    If hasTables Then
-        ModTableIndex.BuildTableIndex doc
-    End If
-    ModTableIndex.BuildListIndex doc
-    ModTableIndex.BuildOMathIndex doc
+    ModTableIndex.EnsureTableIndex doc
+    ModTableIndex.EnsureListIndex doc
+    ModTableIndex.EnsureOMathIndex doc
+    ModTableIndex.EnsureLockedSdtIndex doc
+    hasLockedSdt = ModTableIndex.HasLockedSdts(doc)
+    Dim tblIdxValid As Boolean, listIdxValid As Boolean
+    tblIdxValid = ModTableIndex.IsTableIndexValidForDoc(doc)
+    listIdxValid = ModTableIndex.IsListIndexValidForDoc(doc)
     
     Dim latexFlags() As Boolean, latexWarn As Long
     ModLatex.ComputeLatexFlags doc, latexFlags, latexWarn
@@ -266,13 +276,23 @@ Public Sub NormalizeContentBreaks(ByVal doc As Document)
                 End If
                 Set pRng = p.Range
                 If Not skipPara Then
-                    If ModTableIndex.IsPosInList(pRng.Start) Then
+                    If listIdxValid Then
+                        If ModTableIndex.IsPosInList(pRng.Start) Then skipPara = True
+                    ElseIf pRng.ListFormat.ListType <> 0 Then
                         skipPara = True
-                    ElseIf hasTables Then
-                        If ModTableIndex.IsPosInTable(pRng.Start) Then skipPara = True
+                    End If
+                    If (Not skipPara) And hasTables Then
+                        If tblIdxValid Then
+                            If ModTableIndex.IsPosInTable(pRng.Start) Then skipPara = True
+                        ElseIf CBool(pRng.Information(12)) Then
+                            skipPara = True
+                        End If
                     End If
                     If (Not skipPara) And hasOMaths Then
                         If ModTableIndex.HasOMathInSpan(pRng.Start, pRng.End) Then skipPara = True
+                    End If
+                    If (Not skipPara) And hasLockedSdt Then
+                        If ModTableIndex.IsSpanInLockedSdt(pRng.Start, pRng.End) Then skipPara = True
                     End If
                 End If
                 If Not skipPara Then
@@ -297,6 +317,8 @@ Public Sub NormalizeContentBreaks(ByVal doc As Document)
             Next j
             If splitCount > 0 Then
                 ModTableIndex.InvalidateAllIndexes
+                tblIdxValid = False
+                listIdxValid = False
             End If
         End If
     End If
@@ -308,7 +330,11 @@ Public Sub NormalizeContentBreaks(ByVal doc As Document)
         If pStart = 0 Or pEnd = 0 Or pEnd <= pStart + 1 Then Exit Sub
         If hasTables Then
             ModTableIndex.BuildTableIndex doc
+            tblIdxValid = ModTableIndex.IsTableIndexValidForDoc(doc)
         End If
+        ModTableIndex.EnsureLockedSdtIndex doc
+        hasLockedSdt = ModTableIndex.HasLockedSdts(doc)
+        ModLatex.ComputeLatexFlags doc, latexFlags, latexWarn
     End If
     
     Dim blankStarts() As Long, blankCount As Long
@@ -320,31 +346,49 @@ Public Sub NormalizeContentBreaks(ByVal doc As Document)
     Dim hasInline As Boolean
     hasInline = (doc.InlineShapes.Count > 0)
     Dim r As Range, curInTbl As Boolean, prevInTbl As Boolean, nextInTbl As Boolean, isBlank As Boolean, rText As String
+    Dim maxLatex As Long, isLatex As Boolean
+    maxLatex = UBound(latexFlags)
     i = 0
     For Each p In doc.Paragraphs
         i = i + 1
         If i >= pEnd Then Exit For
         If i > pStart And i < pEnd Then
-            Set r = p.Range
-            If (r.End - r.Start = 1) Then
-                rText = r.Text
-                If Len(rText) = 1 And rText = vbCr Then
-                    curInTbl = False
-                    If hasTables Then curInTbl = ModTableIndex.IsPosInTable(r.Start)
-                    If Not curInTbl Then
-                        isBlank = (r.Bookmarks.Count = 0 And (Not r.ParagraphFormat.PageBreakBefore))
-                        If isBlank And hasInline Then isBlank = (r.InlineShapes.Count = 0)
-                        If isBlank And hasShapes Then isBlank = (r.ShapeRange.Count = 0)
-                        If isBlank Then
-                            prevInTbl = False
-                            nextInTbl = False
-                            If hasTables Then
-                                If Not p.Previous Is Nothing Then prevInTbl = ModTableIndex.IsPosInTable(p.Previous.Range.Start)
-                                If Not p.Next Is Nothing Then nextInTbl = ModTableIndex.IsPosInTable(p.Next.Range.Start)
+            isLatex = False
+            If i <= maxLatex Then isLatex = latexFlags(i)
+            If Not isLatex Then
+                Set r = p.Range
+                If (r.End - r.Start = 1) Then
+                    rText = r.Text
+                    If Len(rText) = 1 And rText = vbCr Then
+                        curInTbl = False
+                        If hasTables Then
+                            If tblIdxValid Then
+                                curInTbl = ModTableIndex.IsPosInTable(r.Start)
+                            Else
+                                curInTbl = CBool(r.Information(12))
                             End If
-                            If (Not prevInTbl) And (Not nextInTbl) Then
-                                blankCount = blankCount + 1
-                                blankStarts(blankCount) = r.Start
+                        End If
+                        If Not curInTbl Then
+                            isBlank = (r.Bookmarks.Count = 0 And (Not r.ParagraphFormat.PageBreakBefore))
+                            If isBlank And hasInline Then isBlank = (r.InlineShapes.Count = 0)
+                            If isBlank And hasShapes Then isBlank = (r.ShapeRange.Count = 0)
+                            If isBlank And hasLockedSdt Then isBlank = (Not ModTableIndex.IsSpanInLockedSdt(r.Start, r.End))
+                            If isBlank Then
+                                prevInTbl = False
+                                nextInTbl = False
+                                If hasTables Then
+                                    If tblIdxValid Then
+                                        If r.Start > 0 Then prevInTbl = ModTableIndex.IsPosInTable(r.Start - 1)
+                                        nextInTbl = ModTableIndex.IsPosInTable(r.End)
+                                    Else
+                                        If Not p.Previous Is Nothing Then prevInTbl = CBool(p.Previous.Range.Information(12))
+                                        If Not p.Next Is Nothing Then nextInTbl = CBool(p.Next.Range.Information(12))
+                                    End If
+                                End If
+                                If (Not prevInTbl) And (Not nextInTbl) Then
+                                    blankCount = blankCount + 1
+                                    blankStarts(blankCount) = r.Start
+                                End If
                             End If
                         End If
                     End If

@@ -15,6 +15,14 @@ Public Sub InsertMarkerAtSelection(ByVal doc As Document, ByVal markerText As St
         Set doc = ActiveDocument
     End If
     If doc Is Nothing Then Exit Sub
+    If doc.Application.Selection Is Nothing Then Exit Sub
+    If Not (doc.Application.Selection.Document Is doc) Then Exit Sub
+    
+    Dim errMsg As String
+    If Not ModBackup.ValidateWritableDocument(doc, errMsg) Then
+        ModUI.MsgBoxW errMsg, vbExclamation, ModConstants.Uni("Cannot Edit (Kh\u00f4ng th\u1ec3 ch\u1ec9nh s\u1eeda)")
+        Exit Sub
+    End If
     
     ' --- Duplicate Guard ---
     Dim existingPara As Long
@@ -81,7 +89,7 @@ Public Sub InsertMarkerAtSelection(ByVal doc As Document, ByVal markerText As St
         If curPara.Range.InlineShapes.Count > 0 Or curPara.Range.ShapeRange.Count > 0 Then
             doc.Range(pStart, pStart).InsertBefore markerText & vbCr
         Else
-            curPara.Range.Text = markerText & vbCr
+            curPara.Range.InsertBefore markerText
         End If
     ElseIf selRng.Start = pStart Then
         ' Case 2: At start of paragraph
@@ -131,10 +139,17 @@ CleanExit:
     Exit Sub
 
 ErrorHandler:
+    Dim errDesc As String
+    errDesc = Err.Description
+    On Error Resume Next
     If weStartedUndo Then
         If Not objUndo Is Nothing Then
             If objUndo.IsRecordingCustomRecord Then objUndo.EndCustomRecord
         End If
+    End If
+    If Application.DisplayAlerts <> 0 Then
+        ModUI.MsgBoxW ModConstants.Uni("Cannot insert marker (Kh\u00f4ng th\u1ec3 ch\u00e8n th\u1ebb): ") & errDesc, _
+                      vbCritical, ModConstants.Uni("Error (L\u1ed7i)")
     End If
 End Sub
 ' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

@@ -18,7 +18,7 @@ Private Sub CapCharAtTextPos(ByVal doc As Document, ByVal rng As Range, ByVal tx
     Dim tLen As Long
     tLen = Len(txt)
     If textPos < 1 Or textPos > tLen Then Exit Sub
-    If rng.Fields.Count = 0 Then
+    If rng.Fields.Count = 0 And (rng.End - rng.Start) = tLen Then
         CapChar doc, rng.Start + textPos - 1
         Exit Sub
     End If
@@ -34,8 +34,11 @@ Private Sub CapCharAtTextPos(ByVal doc As Document, ByVal rng As Range, ByVal tx
     Next k
     If Len(snippet) = 0 Then Exit Sub
     
-    Dim fRng As Range
+    Dim fRng As Range, findStart As Long
     Set fRng = rng.Duplicate
+    findStart = rng.Start + textPos - 1
+    If findStart >= rng.End Then findStart = rng.End - 1
+    If findStart > fRng.Start Then fRng.Start = findStart
     ModMathHelpers.InitDomFind fRng.Find, Replace(snippet, "^", "^^")
     fRng.Find.MatchCase = False
     If fRng.Find.Execute Then
@@ -50,7 +53,7 @@ Public Sub CapPrefixAndContent(ByVal doc As Document, ByVal rng As Range, ByVal 
     leadSpaces = 0
     Do While leadSpaces < tLen
         ch = Mid$(t, leadSpaces + 1, 1)
-        If ch = " " Or ch = vbTab Then
+        If ch = " " Or ch = vbTab Or ch = Chr(1) Then
             leadSpaces = leadSpaces + 1
         Else
             Exit Do
@@ -97,7 +100,7 @@ Public Sub CapPrefixAndContent(ByVal doc As Document, ByVal rng As Range, ByVal 
         Dim k As Long
         For k = leadSpaces + 1 To tLen
             ch = Mid$(t, k, 1)
-            If ch <> " " And ch <> vbTab And ch <> "." And ch <> ":" And (ch < "0" Or ch > "9") Then
+            If ch <> " " And ch <> vbTab And ch <> Chr(1) And ch <> "." And ch <> ":" And (ch < "0" Or ch > "9") Then
                 CapCharAtTextPos doc, rng, t, k
                 Exit Sub
             End If
@@ -116,11 +119,12 @@ Public Sub FormatSourceNoteRange(ByVal doc As Document, ByVal rng As Range, _
     rng.ParagraphFormat.FirstLineIndent = 0#
     rng.ParagraphFormat.LeftIndent = 0#
     rng.ParagraphFormat.KeepWithNext = False
-    Dim colonSplitPos As Long
+    Dim colonSplitPos As Long, rngTxt As String
     colonSplitPos = 0
-    If rng.Fields.Count = 0 Then
+    rngTxt = rng.Text
+    If rng.Fields.Count = 0 And (rng.End - rng.Start) = Len(rngTxt) Then
         Dim colonPos As Long
-        colonPos = InStr(rng.Text, ":")
+        colonPos = InStr(rngTxt, ":")
         If colonPos > 0 Then colonSplitPos = rng.Start + colonPos
     Else
         Dim fRng As Range

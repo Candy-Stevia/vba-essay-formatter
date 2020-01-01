@@ -70,12 +70,14 @@ Public Sub FormatNormalBatch(ByVal doc As Document, ByVal rStart As Long, _
     If lineSpacingMode <> "ls_keep" Then
         ModFormatCore.ApplyLineSpacing rng, lineSpacingMode
     End If
-    If ModCustomProfile.g_ForceVisualReset Then
+    If ModCustomProfile.g_ForceVisualReset And ModCustomProfile.g_ResetBodyInlineFont Then
         rng.Font.Color = -16777216
         rng.Font.Underline = 0
         rng.Font.AllCaps = False
         rng.Font.Bold = False
         rng.Font.Italic = False
+    End If
+    If ModCustomProfile.ShouldVisualResetScope(ElementTypeNormalParagraph) Then
         rng.ParagraphFormat.SpaceBefore = 0#
         rng.ParagraphFormat.SpaceAfter = 0#
     End If
@@ -164,6 +166,18 @@ Public Function InsertListEntriesBatch(ByVal doc As Document, ByVal atRange As R
     Next i
     Dim fullText As String, startPos As Long, pos As Long
     fullText = Join(linesArr, vbCr) & vbCr
+    If atRange.End < doc.Range.End And atRange.End > 0 Then
+        If CBool(doc.Range(atRange.End, atRange.End + 1).Information(12)) Then
+            Dim origEnd As Long
+            origEnd = atRange.End
+            doc.Range(origEnd - 1, origEnd - 1).InsertBefore vbCr
+            If atRange.Start < origEnd Then
+                atRange.SetRange atRange.Start, origEnd
+            Else
+                atRange.SetRange origEnd, origEnd
+            End If
+        End If
+    End If
     startPos = atRange.End
     atRange.InsertAfter fullText
     Dim blockEnd As Long, blockRng As Range, endRng As Range, exactLen As Boolean
@@ -214,6 +228,8 @@ Public Function InsertListEntriesBatch(ByVal doc As Document, ByVal atRange As R
     If hlAdded And endRng.Start - 1 > startPos Then
         Dim allLinksRng As Range
         Set allLinksRng = doc.Range(startPos, endRng.Start - 1)
+        allLinksRng.Font.Name = fontName
+        allLinksRng.Font.Size = fontSize
         allLinksRng.Font.Underline = 0
         allLinksRng.Font.ColorIndex = 0
     End If

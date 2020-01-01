@@ -8,6 +8,17 @@ Option Explicit
 ' Architecture: Academic Document Format Engine (Win32 Unicode Safe)
 ' ==============================================================================
 
+Private m_Fso As Object
+
+Private Function GetFso() As Object
+    On Error Resume Next
+    If m_Fso Is Nothing Then
+        Set m_Fso = CreateObject("Scripting.FileSystemObject")
+    End If
+    Set GetFso = m_Fso
+    Err.Clear
+End Function
+
 ' --- Cloud Path Detection ---
 
 Public Function IsCloudPath(ByVal fullPath As String) As Boolean
@@ -63,6 +74,23 @@ Public Function ValidatePreFlightConditions(ByVal doc As Document, ByRef outErro
     ValidatePreFlightConditions = True
 End Function
 
+Public Function ValidateWritableDocument(ByVal doc As Document, ByRef outErr As String) As Boolean
+    outErr = ""
+    If doc Is Nothing Then
+        outErr = ModConstants.Uni("No open Word document found. (Kh\u00f4ng t\u00ecm th\u1ea5y t\u00e0i li\u1ec7u Word \u0111ang m\u1edf.)")
+        Exit Function
+    End If
+    If doc.ReadOnly Then
+        outErr = ModConstants.Uni("Document is Read-Only. (T\u00e0i li\u1ec7u \u0111ang \u1edf ch\u1ebf \u0111\u1ed9 ch\u1ec9 \u0111\u1ecdc.)")
+        Exit Function
+    End If
+    If doc.ProtectionType <> -1 Then
+        outErr = ModConstants.Uni("Document is protected/restricted. (T\u00e0i li\u1ec7u \u0111ang b\u1ecb kh\u00f3a b\u1ea3o v\u1ec7.)")
+        Exit Function
+    End If
+    ValidateWritableDocument = True
+End Function
+
 ' --- Backup Filepath Generation ---
 
 Public Function GenerateBackupFilePath(ByVal doc As Document) As String
@@ -83,6 +111,23 @@ Public Function GenerateBackupFilePath(ByVal doc As Document) As String
     timeStamp = Format$(Now, "yyyymmdd_hhnnss")
     Dim candidate As String, seq As Long
     candidate = folderPath & baseName & "_crash_backup_" & timeStamp & ext
+    If Len(candidate) >= 250 Then
+        Dim fso As Object, tempDir As String, shortBase As String
+        Set fso = GetFso()
+        If Not fso Is Nothing Then
+            On Error Resume Next
+            tempDir = CStr(fso.GetSpecialFolder(2).Path)
+            On Error GoTo 0
+        End If
+        If Len(tempDir) > 0 Then
+            If Right$(tempDir, 1) <> "\" Then tempDir = tempDir & "\"
+            shortBase = Left$(baseName, 24)
+            If Len(shortBase) = 0 Then shortBase = "doc"
+            folderPath = tempDir
+            baseName = shortBase
+            candidate = folderPath & baseName & "_crash_backup_" & timeStamp & ext
+        End If
+    End If
     If FileExistsUnicode(candidate) Then
         seq = 1
         Do While seq <= 99
@@ -101,7 +146,7 @@ End Function
 Public Function FileExistsUnicode(ByVal filePath As String) As Boolean
     On Error Resume Next
     Dim fso As Object
-    Set fso = CreateObject("Scripting.FileSystemObject")
+    Set fso = GetFso()
     If Not fso Is Nothing Then
         If fso.FileExists(filePath) Then
             If fso.GetFile(filePath).Size > 0 Then FileExistsUnicode = True
@@ -125,7 +170,7 @@ Public Sub DeleteFileUnicode(ByVal filePath As String)
         Exit Sub
     End If
     Dim fso As Object
-    Set fso = CreateObject("Scripting.FileSystemObject")
+    Set fso = GetFso()
     If Not fso Is Nothing Then
         If fso.FileExists(filePath) Then
             fso.DeleteFile filePath, True
@@ -146,7 +191,7 @@ Public Function CreatePhysicalBackup(ByVal doc As Document, ByRef outBackupPath 
     fsoErrDesc = ""
     On Error Resume Next
     Dim fso As Object
-    Set fso = CreateObject("Scripting.FileSystemObject")
+    Set fso = GetFso()
     If Not fso Is Nothing Then
         fso.CopyFile doc.FullName, outBackupPath, True
         If Err.Number <> 0 Then

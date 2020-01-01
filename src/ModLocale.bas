@@ -137,6 +137,9 @@ Public Function IsPrefixOnlyHeading(ByVal s As String) As Boolean
     t = Trim$(s)
     If Len(t) = 0 Then Exit Function
     
+    Dim sep As String
+    sep = "(?:\s*:|\.|\s+[\-" & ModConstants.Uni("\u2013\u2014") & "])"
+    
     Dim ch1 As String
     ch1 = Left$(t, 1)
     If ch1 = "I" Or ch1 = "V" Or ch1 = "X" Then
@@ -145,7 +148,7 @@ Public Function IsPrefixOnlyHeading(ByVal s As String) As Boolean
             Set regRoman = CreateObject("VBScript.RegExp")
             regRoman.IgnoreCase = False
             regRoman.Global = False
-            regRoman.Pattern = "^(X{1,3}(?:IX|IV|V?I{0,3})|IX|IV|V?I{1,3}|V)(?:\s*:|\.)$"
+            regRoman.Pattern = "^(X{1,3}(?:IX|IV|V?I{0,3})|IX|IV|V?I{1,3}|V)" & sep & "$"
         End If
         If regRoman.Test(t) Then
             IsPrefixOnlyHeading = True
@@ -156,16 +159,19 @@ Public Function IsPrefixOnlyHeading(ByVal s As String) As Boolean
     Static regEx As Object
     If regEx Is Nothing Then
         Dim enPat As String, viPat As String
-        enPat = "(Chapter\s+[A-Za-z0-9]+(?:\s*:|\.)|Appendix(\s+[A-Za-z0-9]+)?(?:\s*:|\.)|" & _
+        enPat = "(Chapter\s+[A-Za-z0-9]+" & sep & "|Appendix(\s+[A-Za-z0-9]+)?" & sep & "|" & _
                 "\d+(\.\d+)*\.|" & _
-                "Table\s+[A-Za-z0-9]+(?:[\.\-_][A-Za-z0-9]+)*(?:\s*:|\.)|" & _
-                "(Figure|Fig\.?|Chart|Diagram)\s+[A-Za-z0-9]+(?:[\.\-_][A-Za-z0-9]+)*(?:\s*:|\.)|" & _
+                "Table\s+[A-Za-z0-9]+(?:[\.\-_][A-Za-z0-9]+)*" & sep & "|" & _
+                "(Figure|Fig\.?|Chart|Diagram)\s+[A-Za-z0-9]+(?:[\.\-_][A-Za-z0-9]+)*" & sep & "|" & _
                 "Source\s*:|Note\s*:)"
                 
-        viPat = ModConstants.Uni("(Ch\u01b0\u01a1ng\s+[A-Za-z0-9]+(?:\s*:|\.)|Ph\u1ea7n\s+[A-Za-z0-9]+(?:\s*:|\.)|Ph\u1ee5 l\u1ee5c(\s+[A-Za-z0-9]+)?(?:\s*:|\.)|" & _
-                "B(?:\u1ea3|a)ng\s+[A-Za-z0-9]+(?:[\.\-_][A-Za-z0-9]+)*(?:\s*:|\.)|" & _
-                "(H(?:\u00ec|i)nh(?:\s+(?:\u1ea3nh|v\u1ebd))?|S\u01a1 \u0111\u1ed3|Bi\u1ec3u \u0111\u1ed3|\u0110\u1ed3 th\u1ecb)\s+[A-Za-z0-9]+(?:[\.\-_][A-Za-z0-9]+)*(?:\s*:|\.)|" & _
-                "Ngu\u1ed3n\s*:|Ghi ch\u00fa\s*:)")
+        viPat = "(" & ModConstants.Uni("Ch\u01b0\u01a1ng") & "\s+[A-Za-z0-9]+" & sep & "|" & _
+                ModConstants.Uni("Ph\u1ea7n") & "\s+[A-Za-z0-9]+" & sep & "|" & _
+                ModConstants.Uni("Ph\u1ee5 l\u1ee5c") & "(\s+[A-Za-z0-9]+)?" & sep & "|" & _
+                ModConstants.Uni("B(?:\u1ea3|a)ng") & "\s+[A-Za-z0-9]+(?:[\.\-_][A-Za-z0-9]+)*" & sep & "|" & _
+                ModConstants.Uni("(H(?:\u00ec|i)nh(?:\s+(?:\u1ea3nh|v\u1ebd))?|S\u01a1 \u0111\u1ed3|Bi\u1ec3u \u0111\u1ed3|\u0110\u1ed3 th\u1ecb)") & _
+                "\s+[A-Za-z0-9]+(?:[\.\-_][A-Za-z0-9]+)*" & sep & "|" & _
+                ModConstants.Uni("Ngu\u1ed3n\s*:|Ghi ch\u00fa\s*:") & ")"
                 
         Set regEx = CreateObject("VBScript.RegExp")
         regEx.IgnoreCase = True
@@ -179,13 +185,17 @@ Public Function ClassifyRefZoneHeading(ByVal cleanTxt As String, Optional ByVal 
     Dim t As String
     t = Trim$(Replace(Replace(Replace(cleanTxt, vbCr, ""), Chr(11), " "), Chr(7), ""))
     If Len(t) = 0 Then Exit Function
-    Static reStrip As Object, reEnter As Object, reEnterExact As Object, reExit As Object
+    Static reStrip As Object, reStripRoman As Object, reEnter As Object, reEnterExact As Object, reExit As Object
     If reStrip Is Nothing Then
         Set reStrip = CreateObject("VBScript.RegExp")
         reStrip.IgnoreCase = True
         reStrip.Global = False
         reStrip.Pattern = "^(?:(?:chapter|" & ModConstants.Uni("ch\u01b0\u01a1ng") & "|part|" & _
-                          ModConstants.Uni("ph\u1ea7n") & ")\s+[a-z0-9]+\s*[:\.\-]?\s*|(?:\d+(?:\.\d+)*|[ivxlcdm]+)\s*[:\.\-]?\s+)"
+                          ModConstants.Uni("ph\u1ea7n") & ")\s+[a-z0-9]+\s*[:\.\-]?\s*|\d+(?:\.\d+)*\s*[:\.\-]?\s+)"
+        Set reStripRoman = CreateObject("VBScript.RegExp")
+        reStripRoman.IgnoreCase = False
+        reStripRoman.Global = False
+        reStripRoman.Pattern = "^[IVXLCDM]+\s*[:\.\-]\s+"
         Dim enterBase As String
         enterBase = "(?:references?|bibliography|tai lieu tham khao|danh muc tai lieu tham khao|" & _
                     ModConstants.Uni("t\u00e0i li\u1ec7u tham kh\u1ea3o|danh m\u1ee5c t\u00e0i li\u1ec7u tham kh\u1ea3o") & ")"
@@ -200,6 +210,7 @@ Public Function ClassifyRefZoneHeading(ByVal cleanTxt As String, Optional ByVal 
         reExit.Pattern = "^(?:appendices|appendix|glossary|phu luc|" & ModConstants.Uni("ph\u1ee5 l\u1ee5c") & ")(?:$|\s|[:\.\-])"
     End If
     t = Trim$(reStrip.Replace(t, ""))
+    t = Trim$(reStripRoman.Replace(t, ""))
     If Len(t) = 0 Then Exit Function
     If exactEnter Then
         If reEnterExact.Test(t) Then
@@ -258,4 +269,27 @@ Public Function IsCurrencyUnitMatch(ByVal rawUnitPart As String, ByVal numPart A
         IsCurrencyUnitMatch = TestSingleCurrencyUnit(rawUnitPart, numPart, reCurr)
     End If
 End Function
+Public Function IsRefSubheading(ByVal cleanTxt As String) As Boolean
+    Dim t As String
+    t = Trim$(cleanTxt)
+    If Len(t) = 0 Or Len(t) > 100 Then Exit Function
+    Static reStrip As Object, reSub As Object
+    If reSub Is Nothing Then
+        Set reStrip = CreateObject("VBScript.RegExp")
+        reStrip.IgnoreCase = True
+        reStrip.Global = False
+        reStrip.Pattern = "^(?:\d+(?:\.\d+)*\.?|[a-zA-Z]\)|[IVXLCDM]+[\.:])\s+"
+        Set reSub = CreateObject("VBScript.RegExp")
+        reSub.IgnoreCase = True
+        reSub.Global = False
+        Dim viSub As String, enSub As String
+        viSub = ModConstants.Uni("t\u00e0i li\u1ec7u (?:tham kh\u1ea3o )?(?:ti\u1ebfng vi\u1ec7t|ti\u1ebfng anh|n\u01b0\u1edbc ngo\u00e0i)|" & _
+                                 "v\u0103n b\u1ea3n ph\u00e1p lu\u1eadt|ngu\u1ed3n (?:internet|tr\u1ef1c tuy\u1ebfn)")
+        enSub = "vietnamese references|english references|primary sources|secondary sources|books|journal articles|online sources"
+        reSub.Pattern = "^(?:" & viSub & "|" & enSub & ")[\s:\.\-\u2013\u2014]*$"
+    End If
+    t = Trim$(reStrip.Replace(t, ""))
+    IsRefSubheading = reSub.Test(t)
+End Function
+
 ' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

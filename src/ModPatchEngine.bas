@@ -56,6 +56,18 @@ Private Function BuildDryRunSummary(ByRef payload As PatchPayload, ByRef stats A
     BuildDryRunSummary = s
 End Function
 
+Private Function CountNewRefBookmarks(ByVal doc As Document, ByRef targets() As RefTargetInfo, _
+                                      ByVal targetCount As Long) As Long
+    Dim i As Long
+    For i = 1 To targetCount
+        If targets(i).Found And targets(i).RefArrIdx > 0 Then
+            If Not doc.Bookmarks.Exists(targets(i).BmName) Then
+                CountNewRefBookmarks = CountNewRefBookmarks + 1
+            End If
+        End If
+    Next i
+End Function
+
 Private Sub EnsureRefBookmarks(ByVal doc As Document, ByRef targets() As RefTargetInfo, _
                                ByVal targetCount As Long, ByRef paras() As ScannedPara)
     Dim i As Long, pIdx As Long, endPos As Long, bmRng As Range
@@ -115,6 +127,7 @@ Private Sub RestorePatchUiState(ByVal doc As Document, ByVal hasWinView As Boole
                                 ByVal hasScreen As Boolean, ByVal prevScreen As Boolean)
     On Error Resume Next
     ModProgress.ProgressFinish
+    Application.StatusBar = False
     If hasWinView Then
         If Not doc Is Nothing Then
             If doc.Windows.Count > 0 Then doc.ActiveWindow.View.Type = prevView
@@ -136,6 +149,7 @@ Public Function ExecuteAiPatchText(ByVal doc As Document, ByVal rawPatch As Stri
         Exit Function
     End If
     ModMain.g_IsEngineRunning = True
+    ModRibbonCallbacks.InvalidateRibbonSafe
     ModRibbonCallbacks.g_LastError = ""
     ModConstants.g_SilentErrors = 0
     On Error GoTo ErrPatch
@@ -161,7 +175,9 @@ Public Function ExecuteAiPatchText(ByVal doc As Document, ByVal rawPatch As Stri
     End If
 
     Dim markers As MarkerLocations, paras() As ScannedPara, pCount As Long, maxRefNum As Long, scanErr As String
+    Application.StatusBar = "AI Patch: Scanning document..."
     If Not ModPatchMatcher.ScanDocForPatch(doc, markers, paras, pCount, maxRefNum, scanErr) Then
+        Application.StatusBar = False
         If showUiDialogs Then
             ModUI.MsgBoxW scanErr, vbExclamation, ModConstants.Uni("AI Patch Error (L\u1ed7i AI Patch)")
         End If
@@ -169,20 +185,24 @@ Public Function ExecuteAiPatchText(ByVal doc As Document, ByVal rawPatch As Stri
         GoTo CleanExit
     End If
 
+    Application.StatusBar = "AI Patch: Planning operations..."
     Dim refTargets() As RefTargetInfo, ops() As PatchOp, stats As PlanStats
     Dim styleOps() As PlannedStyleOp, styleCnt As Long, tagOps() As PlannedTagOp, tagCnt As Long
     ModPatchPlanner.PlanAllPatchOps doc, payload, paras, pCount, maxRefNum, refTargets, ops, stats
-    ModPatchPlanner.PlanStylesAndTags payload, paras, pCount, styleOps, styleCnt, tagOps, tagCnt, stats
+    ModPatchPlanner.PlanStylesAndTags payload, paras, pCount, styleOps, styleCnt, tagOps, tagCnt, stats, markers.ContentStartParaIndex
     If Len(stats.WarnNotes) > 0 Then ModRibbonCallbacks.g_LastError = stats.WarnNotes
 
     Dim willBuildLoa As Boolean, canLoa As Boolean, isOffFallback As Boolean, linkColor As Long
     willBuildLoa = (payload.AcronymCount >= 1)
     If willBuildLoa Then canLoa = ModAcronymBuilder.CanLocateAcronymTarget(doc)
     linkColor = ResolveCitationApplyColor(isOffFallback)
+    Application.StatusBar = False
 
-    Dim hasWork As Boolean
-    hasWork = (stats.RefsMatched > 0 Or stats.OpCount > 0 Or styleCnt > 0 Or tagCnt > 0 Or (willBuildLoa And canLoa))
-    If Not hasWork And stats.CitesAlready = 0 Then
+    Dim newRefBms As Long, needColorSync As Boolean, hasWork As Boolean
+    newRefBms = CountNewRefBookmarks(doc, refTargets, payload.RefCount)
+    needColorSync = (stats.CitesAlready > 0 And Not isOffFallback)
+    hasWork = (newRefBms > 0 Or stats.OpCount > 0 Or styleCnt > 0 Or tagCnt > 0 Or (willBuildLoa And canLoa) Or needColorSync)
+    If Not hasWork Then
         If showUiDialogs Then
             ModUI.MsgBoxW BuildDryRunSummary(payload, stats, willBuildLoa, canLoa, isOffFallback), _
                           vbInformation, ModConstants.Uni("AI Patch Dry-Run")
@@ -250,9 +270,11 @@ Public Function ExecuteAiPatchText(ByVal doc As Document, ByVal rawPatch As Stri
         ModProgress.ProgressUpdate (stats.OpCount - i + 1), stats.OpCount
         ApplySingleOpItem doc, ops(i), linkColor, fixesDone, structsDone, citesDone
     Next i
+    Dim tagMaxSeq As Long
+    tagMaxSeq = -1
     For i = 1 To tagCnt
         Set curP = tagParaRngs(i).Paragraphs(1).Range
-        ModCustomProfile.ApplyTagToPara doc, curP.Start, curP.End, tagOps(i).TagType
+        ModBookmark.ApplyAfTagBookmark doc, curP.Start, curP.End, tagOps(i).TagType, tagMaxSeq
     Next i
     If stats.CitesAlready > 0 And Not isOffFallback Then
         ModPatchMatcher.SyncCitationLinkColors doc, linkColor
@@ -291,8 +313,10 @@ Public Function ExecuteAiPatchText(ByVal doc As Document, ByVal rawPatch As Stri
     GoTo CleanExit
 
 ErrPatch:
+    Dim errDesc As String
+    errDesc = Err.Description
     ModConstants.g_SilentErrors = ModConstants.g_SilentErrors + 1
-    ModRibbonCallbacks.g_LastError = "AI Patch error (" & Err.Number & "): " & Err.Description
+    ModRibbonCallbacks.g_LastError = "AI Patch error (" & Err.Number & "): " & errDesc
     On Error Resume Next
     If undoStarted Then ModBackup.EndUndoSafe objUndo, undoStarted
     RestorePatchUiState doc, hasWindowView, prevViewType, hasPaginationState, prevPagination, hasScreenSaved, prevScreen
@@ -300,10 +324,18 @@ ErrPatch:
     If showUiDialogs Then
         ModUI.MsgBoxW ModRibbonCallbacks.g_LastError, vbCritical, ModConstants.Uni("AI Patch Error (L\u1ed7i)")
     End If
-    ExecuteAiPatchText = "ERR|RUNTIME|" & Err.Description
+    ExecuteAiPatchText = "ERR|RUNTIME|" & errDesc
 
 CleanExit:
+    On Error Resume Next
+    Application.StatusBar = False
+    ModTableIndex.InvalidateAllIndexes
+    ModCustomProfile.ResetStyleProfileCache
+    ModCustomProfile.ResetTagCache
+    ModPatchMatcher.ResetRefBmCache
+    Err.Clear
     ModMain.g_IsEngineRunning = False
+    ModRibbonCallbacks.InvalidateRibbonSafe
 End Function
 
 Public Sub RunAiPatchClipboard()

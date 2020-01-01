@@ -53,12 +53,12 @@ Public Sub InsertCleanHyperlink(ByVal doc As Document, _
     On Error Resume Next
     Dim hl As Hyperlink
     Set hl = doc.Hyperlinks.Add(Anchor:=rng, Address:="", SubAddress:=targetBookmark)
-    
-    ' Overwrite Word default hyperlink character styling
-    With rng.Font
-        .Underline = 0  ' wdUnderlineNone = 0
-        .ColorIndex = 0 ' wdAuto = 0
-    End With
+    If Not hl Is Nothing Then
+        With hl.Range.Font
+            .Underline = 0  ' wdUnderlineNone = 0
+            .ColorIndex = 0 ' wdAuto = 0
+        End With
+    End If
     If Err.Number <> 0 Then
         ModConstants.g_SilentErrors = ModConstants.g_SilentErrors + 1
         Err.Clear
@@ -108,35 +108,57 @@ Public Sub CleanExcessBookmarks(ByVal doc As Document, ByVal cntToc As Long, ByV
     Next i
 End Sub
 
-Public Sub ApplyAfTagBookmark(ByVal doc As Document, ByVal pStart As Long, ByVal pEnd As Long, ByVal tagType As String)
+Public Sub ApplyAfTagBookmark(ByVal doc As Document, ByVal pStart As Long, ByVal pEnd As Long, _
+                              ByVal tagType As String, Optional ByRef cachedMaxSeq As Long = -1)
     Dim bm As Bookmark, toDel() As String, delCnt As Long, maxSeq As Long, suffix As String, k As Long
-    For Each bm In doc.Bookmarks
+    Dim bmStory As Long, bmStart As Long, pRng As Range, bmSrc As Bookmarks
+    Set pRng = doc.Range(pStart, pEnd)
+    If cachedMaxSeq < 0 Then
+        Set bmSrc = doc.Bookmarks
+    Else
+        Set bmSrc = pRng.Bookmarks
+    End If
+    For Each bm In bmSrc
         If Left$(bm.Name, Len(TAG_BM_PREFIX)) = TAG_BM_PREFIX Then
-            If bm.Range.Start >= pStart And bm.Range.Start < pEnd Then
+            bmStory = 0
+            bmStart = -1
+            On Error Resume Next
+            bmStory = bm.Range.StoryType
+            bmStart = bm.Range.Start
+            If Err.Number <> 0 Then
+                bmStory = 0
+                Err.Clear
+            End If
+            On Error GoTo 0
+            If bmStory = 1 And bmStart >= pStart And bmStart < pEnd Then
                 delCnt = delCnt + 1
                 ReDim Preserve toDel(1 To delCnt)
                 toDel(delCnt) = bm.Name
             End If
-            suffix = Mid$(bm.Name, InStrRev(bm.Name, "_") + 1)
-            If Len(suffix) > 0 And Len(suffix) <= 9 And IsNumeric(suffix) Then
-                If CLng(suffix) > maxSeq Then maxSeq = CLng(suffix)
+            If cachedMaxSeq < 0 Then
+                suffix = Mid$(bm.Name, InStrRev(bm.Name, "_") + 1)
+                If Len(suffix) > 0 And Len(suffix) <= 9 And IsAllAsciiDigits(suffix) Then
+                    If CLng(suffix) > maxSeq Then maxSeq = CLng(suffix)
+                End If
             End If
         End If
     Next bm
     For k = 1 To delCnt
         ModZoneManager.SafeDelBm doc, toDel(k)
     Next k
-    Dim uType As String, tEnd As Long, pRng As Range
+    If cachedMaxSeq < 0 Then cachedMaxSeq = maxSeq
+    Dim uType As String, tEnd As Long, nextSeq As Long
     uType = UCase$(Trim$(tagType))
     If uType = "CLEAR" Then Exit Sub
-    Set pRng = doc.Range(pStart, pEnd)
-    If Right$(pRng.Text, 1) = Chr(7) Or CBool(pRng.Information(12)) Then
+    cachedMaxSeq = cachedMaxSeq + 1
+    nextSeq = cachedMaxSeq
+    If Right$(pRng.Text, 1) = Chr(7) Then
         tEnd = pEnd - 2
     Else
         tEnd = pEnd - 1
     End If
     If tEnd < pStart Then tEnd = pStart
-    AddBookmark doc, TAG_BM_PREFIX & LCase$(uType) & "_" & Format$(maxSeq + 1, "0000"), doc.Range(pStart, tEnd)
+    AddBookmark doc, TAG_BM_PREFIX & LCase$(uType) & "_" & Format$(nextSeq, "0000"), doc.Range(pStart, tEnd)
 End Sub
 
 Public Sub ResetAfTagCache()
@@ -150,32 +172,62 @@ Public Sub LoadAfTagCache(ByVal doc As Document)
     ResetAfTagCache
     If doc Is Nothing Then Exit Sub
     Dim bm As Bookmark, rest As String, usPos As Long, code As Long, cap As Long
+    Dim bmStory As Long, bmStart As Long, bmEnd As Long
     cap = 16
     For Each bm In doc.Bookmarks
         If Left$(bm.Name, Len(TAG_BM_PREFIX)) = TAG_BM_PREFIX Then
             rest = Mid$(bm.Name, Len(TAG_BM_PREFIX) + 1)
-            usPos = InStr(1, rest, "_", vbBinaryCompare)
+            usPos = InStrRev(rest, "_")
             If usPos > 1 Then
                 code = ModCustomProfile.TagTypeToCode(Left$(rest, usPos - 1))
                 If code <> 0 Then
-                    If mTagCount = 0 Then
-                        ReDim mTagStarts(1 To cap)
-                        ReDim mTagEnds(1 To cap)
-                        ReDim mTagCodes(1 To cap)
-                    ElseIf mTagCount >= cap Then
-                        cap = cap * 2
-                        ReDim Preserve mTagStarts(1 To cap)
-                        ReDim Preserve mTagEnds(1 To cap)
-                        ReDim Preserve mTagCodes(1 To cap)
+                    bmStory = 0
+                    On Error Resume Next
+                    bmStory = bm.Range.StoryType
+                    bmStart = bm.Range.Start
+                    bmEnd = bm.Range.End
+                    If Err.Number <> 0 Then
+                        bmStory = 0
+                        Err.Clear
                     End If
-                    mTagCount = mTagCount + 1
-                    mTagStarts(mTagCount) = bm.Range.Start
-                    mTagEnds(mTagCount) = bm.Range.End
-                    mTagCodes(mTagCount) = code
+                    On Error GoTo 0
+                    If bmStory = 1 Then
+                        If mTagCount = 0 Then
+                            ReDim mTagStarts(1 To cap)
+                            ReDim mTagEnds(1 To cap)
+                            ReDim mTagCodes(1 To cap)
+                        ElseIf mTagCount >= cap Then
+                            cap = cap * 2
+                            ReDim Preserve mTagStarts(1 To cap)
+                            ReDim Preserve mTagEnds(1 To cap)
+                            ReDim Preserve mTagCodes(1 To cap)
+                        End If
+                        mTagCount = mTagCount + 1
+                        mTagStarts(mTagCount) = bmStart
+                        mTagEnds(mTagCount) = bmEnd
+                        mTagCodes(mTagCount) = code
+                    End If
                 End If
             End If
         End If
     Next bm
+    Dim i As Long, j As Long, keyS As Long, keyE As Long, keyC As Long
+    For i = 2 To mTagCount
+        keyS = mTagStarts(i)
+        keyE = mTagEnds(i)
+        keyC = mTagCodes(i)
+        j = i - 1
+        Do While j >= 1
+            If mTagStarts(j) <= keyS Then Exit Do
+            mTagStarts(j + 1) = mTagStarts(j)
+            mTagEnds(j + 1) = mTagEnds(j)
+            mTagCodes(j + 1) = mTagCodes(j)
+            j = j - 1
+        Loop
+        mTagStarts(j + 1) = keyS
+        mTagEnds(j + 1) = keyE
+        mTagCodes(j + 1) = keyC
+    Next i
 End Sub
 
 Public Function HasActiveAfTags() As Boolean
@@ -184,12 +236,19 @@ End Function
 
 Public Function LookupAfTagForRange(ByVal rStart As Long, ByVal rEnd As Long) As Long
     If mTagCount = 0 Then Exit Function
-    Dim k As Long
-    For k = 1 To mTagCount
-        If mTagStarts(k) >= rStart And mTagStarts(k) < rEnd Then
-            LookupAfTagForRange = mTagCodes(k)
-            Exit Function
+    Dim lo As Long, hi As Long, mid As Long
+    lo = 1
+    hi = mTagCount
+    Do While lo < hi
+        mid = lo + (hi - lo) \ 2
+        If mTagStarts(mid) < rStart Then
+            lo = mid + 1
+        Else
+            hi = mid
         End If
-    Next k
+    Loop
+    If mTagStarts(lo) >= rStart And mTagStarts(lo) < rEnd Then
+        LookupAfTagForRange = mTagCodes(lo)
+    End If
 End Function
 ' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

@@ -19,11 +19,15 @@ Public Function GetLastPreAuditReport() As String
     GetLastPreAuditReport = g_LastPreAuditReport
 End Function
 
-Private Function BuildApaYearToken() As String
+Private Function BuildApaYearToken(Optional ByVal allowBareKn As Boolean = True) As String
     Dim yr As String, enNoYr As String, viNoYr As String
     yr = "(?:18|19|20)\d{2}[a-z]?"
     enNoYr = "n\.d\.?|in\s+press|forthcoming"
-    viNoYr = ModConstants.Uni("k\.n\.x\.b\.|k\.nxb|k\.n\.|k\.n|kn|kh\u00f4ng\s+r\u00f5\s+n\u0103m|kh\u00f4ng\s+n\u0103m|kh\u00f4ng\s+ghi\s+n\u0103m|ch\u01b0a\s+r\u00f5\s+n\u0103m|\u0111ang\s+in|\u0111ang\s+xu\u1ea5t\s+b\u1ea3n|s\u1eafp\s+xu\u1ea5t\s+b\u1ea3n")
+    If allowBareKn Then
+        viNoYr = ModConstants.Uni("k\.n\.x\.b\.|k\.nxb|k\.n\.|k\.n|kn|kh\u00f4ng\s+r\u00f5\s+n\u0103m|kh\u00f4ng\s+n\u0103m|kh\u00f4ng\s+ghi\s+n\u0103m|ch\u01b0a\s+r\u00f5\s+n\u0103m|\u0111ang\s+in|\u0111ang\s+xu\u1ea5t\s+b\u1ea3n|s\u1eafp\s+xu\u1ea5t\s+b\u1ea3n")
+    Else
+        viNoYr = ModConstants.Uni("k\.n\.x\.b\.|k\.nxb|k\.n\.|k\.n|kh\u00f4ng\s+r\u00f5\s+n\u0103m|kh\u00f4ng\s+n\u0103m|kh\u00f4ng\s+ghi\s+n\u0103m|ch\u01b0a\s+r\u00f5\s+n\u0103m|\u0111ang\s+in|\u0111ang\s+xu\u1ea5t\s+b\u1ea3n|s\u1eafp\s+xu\u1ea5t\s+b\u1ea3n")
+    End If
     BuildApaYearToken = "(?:" & yr & "|" & enNoYr & "|" & viNoYr & ")"
 End Function
 
@@ -44,11 +48,35 @@ Private Function IsUpperLetterStart(ByVal s As String) As Boolean
     End If
 End Function
 
+Private Function EndsWithBareNumber(ByVal s As String) As Boolean
+    Dim t As String, i As Long, ch As Long, dCnt As Long
+    t = Trim$(s)
+    If Len(t) = 0 Then Exit Function
+    i = Len(t)
+    Do While i >= 1
+        ch = AscW(Mid$(t, i, 1))
+        If ch >= 48 And ch <= 57 Then
+            dCnt = dCnt + 1
+            i = i - 1
+        Else
+            Exit Do
+        End If
+    Loop
+    If dCnt = 0 Then Exit Function
+    If i = 0 Then
+        EndsWithBareNumber = True
+    Else
+        ch = AscW(Mid$(t, i, 1))
+        If ch = 32 Or ch = 44 Or ch = 45 Or ch = 47 Then EndsWithBareNumber = True
+    End If
+End Function
+
 Private Sub EnsureScanRegexes(ByRef reParen As Object, ByRef reSeg As Object, ByRef reIntro As Object, _
                               ByRef reNonCite As Object, ByRef reNarrYr As Object, ByRef reEtAlEnd As Object, _
                               ByRef reStopWord As Object)
-    Dim yrTok As String, locTok As String, secTok As String
-    yrTok = BuildApaYearToken()
+    Dim yrTok As String, narrYrTok As String, locTok As String, secTok As String
+    yrTok = BuildApaYearToken(True)
+    narrYrTok = BuildApaYearToken(False)
     secTok = ModConstants.Uni("(?:\s*,\s*(?:as\s+cited\s+in|cited\s+in|quoted\s+in|d\u1eabn\s+theo|tr\u00edch\s+d\u1eabn\s+t\u1eeb)\s+[^;()]{2,90})?")
     locTok = "(?:\s*,\s*(?:(?:18|19|20)\d{2}[a-z]?|(?:p|pp|tr|trang)\.?\s*\d+(?:\s*[-]\s*\d+)?|[A-Za-z0-9.\s]{1,25}))?" & secTok
     Set reParen = CreateObject("VBScript.RegExp")
@@ -65,12 +93,12 @@ Private Sub EnsureScanRegexes(ByRef reParen As Object, ByRef reSeg As Object, By
 
     Set reSeg = CreateObject("VBScript.RegExp")
     reSeg.IgnoreCase = True
-    reSeg.Pattern = "^([^,;()]{2,110}?)\s*,\s*(" & yrTok & "(?:\s*,\s*(?:" & yrTok & "|[a-z](?![A-Za-z])))*)" & locTok & "$"
+    reSeg.Pattern = "^([^;()]{2,110}?)\s*,\s*(" & yrTok & "(?:\s*,\s*(?:" & yrTok & "|[a-z](?![A-Za-z])))*)" & locTok & "$"
 
     Set reNarrYr = CreateObject("VBScript.RegExp")
     reNarrYr.IgnoreCase = True
     reNarrYr.Global = True
-    reNarrYr.Pattern = "\(\s*" & yrTok & "(?:\s*,\s*(?:p|pp|tr|trang)\.?\s*\d+(?:\s*[-]\s*\d+)?)?\s*\)"
+    reNarrYr.Pattern = "\(\s*(" & narrYrTok & "(?:\s*,\s*(?:" & narrYrTok & "|[a-z](?![A-Za-z])))*)(?:\s*,\s*(?:p|pp|tr|trang)\.?\s*\d+(?:\s*[-]\s*\d+)?)?\s*\)"
 
     Set reEtAlEnd = CreateObject("VBScript.RegExp")
     reEtAlEnd.IgnoreCase = True
@@ -103,7 +131,9 @@ Private Function CountParenSegs(ByVal innerTxt As String, ByVal reSeg As Object,
             If ms.Count = 1 Then
                 authPart = Trim$(ms(0).SubMatches(0))
                 yrPart = Trim$(ms(0).SubMatches(1))
-                If IsUpperLetterStart(authPart) Then CountParenSegs = CountParenSegs + CountYearItemsInList(yrPart)
+                If IsUpperLetterStart(authPart) And Not EndsWithBareNumber(authPart) Then
+                    CountParenSegs = CountParenSegs + CountYearItemsInList(yrPart)
+                End If
             End If
         End If
     Next k
@@ -212,7 +242,7 @@ Private Sub ScanParaCitations(ByVal normTxt As String, ByVal reParen As Object, 
     If narrMs.Count > 0 Then
         For Each nm In narrMs
             If HasValidAuthorBeforeParen(workTxt, nm.FirstIndex, reEtAlEnd, reStopWord) Then
-                outNarrCites = outNarrCites + 1
+                outNarrCites = outNarrCites + CountYearItemsInList(CStr(nm.SubMatches(0)))
             End If
         Next nm
     End If
@@ -254,15 +284,25 @@ End Function
 Public Function ExecutePreAuditScan(ByVal doc As Document, ByVal showUi As Boolean) As String
     Dim markers As MarkerLocations, paras() As ScannedPara, pCount As Long, maxRefNum As Long, errMsg As String
     g_LastPreAuditReport = ""
+    If ModMain.g_IsEngineRunning Or ModMathController.g_IsMathBuilding Then
+        ExecutePreAuditScan = "ERR|BUSY"
+        Exit Function
+    End If
     If doc Is Nothing Then
         ExecutePreAuditScan = "ERR|NODOC"
         Exit Function
     End If
+    ModMain.g_IsEngineRunning = True
+    ModRibbonCallbacks.InvalidateRibbonSafe
+    On Error GoTo ScanFail
+    Application.StatusBar = "Pre-Audit Scan: Scanning document..."
     If Not ModPatchMatcher.ScanDocForPatch(doc, markers, paras, pCount, maxRefNum, errMsg) Then
+        Application.StatusBar = False
         If showUi Then ModUI.MsgBoxW errMsg, vbExclamation, ModConstants.Uni("Pre-Audit Scan Error")
         ExecutePreAuditScan = "ERR|SCAN|" & errMsg
-        Exit Function
+        GoTo CleanScan
     End If
+    Application.StatusBar = "Pre-Audit Scan: Counting citations..."
     Dim reParen As Object, reSeg As Object, reIntro As Object, reNonCite As Object
     Dim reNarrYr As Object, reEtAlEnd As Object, reStopWord As Object
     EnsureScanRegexes reParen, reSeg, reIntro, reNonCite, reNarrYr, reEtAlEnd, reStopWord
@@ -272,6 +312,7 @@ Public Function ExecutePreAuditScan(ByVal doc As Document, ByVal showUi As Boole
     Dim j As Long, cClust As Long, cParen As Long, cNarr As Long
     curChap = "Body (Intro / Main)"
     For j = 1 To pCount
+        If (j Mod 50) = 0 Then Application.StatusBar = "Pre-Audit Scan: Counting citations (" & j & "/" & pCount & ")..."
         If paras(j).IsInRefZone Then
             If Not paras(j).IsHeading And Not paras(j).IsInTable And Not paras(j).IsExcluded Then
                 refEntries = refEntries + 1
@@ -294,17 +335,50 @@ Public Function ExecutePreAuditScan(ByVal doc As Document, ByVal showUi As Boole
             End If
         End If
     Next j
-    Dim totalCites As Long, reportTxt As String
+    Dim totalCites As Long, reportTxt As String, auditVotes() As ScopeVoteResult
+    Dim auditCompact As String, auditFull As String, auditSparse As String, auditErr As String, fullClipTxt As String
     totalCites = parenCites + narrCites
     reportTxt = BuildPreAuditReportText(totalCites, clusters, parenCites, narrCites, refEntries, buckets, bCount)
-    g_LastPreAuditReport = reportTxt
+    fullClipTxt = reportTxt
+    If ModStyleAudit.RunStyleAuditCore(doc, auditVotes, auditCompact, auditFull, auditSparse, auditErr) Then
+        fullClipTxt = auditFull & vbCrLf & reportTxt
+    End If
+    g_LastPreAuditReport = fullClipTxt
     ExecutePreAuditScan = "OK|" & totalCites & "|" & clusters & "|" & parenCites & "|" & narrCites & "|" & refEntries & "|" & bCount
+    Application.StatusBar = False
     If showUi Then
         Dim promptMsg As String, resp As Long
-        promptMsg = reportTxt & vbCrLf & ModConstants.Uni("Copy this Pre-Audit summary to Clipboard? (Ch\u00e9p b\u00e1o c\u00e1o v\u00e0o Clipboard?)")
-        resp = ModUI.MsgBoxW(promptMsg, vbYesNo + vbQuestion + vbDefaultButton1, ModConstants.Uni("Pre-Audit Scan"))
-        If resp = 6 Then ModClipboard.SetClipboardTextUnicode reportTxt
+        If Len(auditCompact) > 0 Then
+            promptMsg = auditCompact & vbCrLf & reportTxt & vbCrLf & _
+                        ModConstants.Uni("Copy full X-Ray & Style Lint report to Clipboard? (Ch\u00e9p to\u00e0n b\u1ed9 b\u00e1o c\u00e1o X-Ray & Lint v\u00e0o Clipboard?)")
+        Else
+            promptMsg = reportTxt & vbCrLf & ModConstants.Uni("Copy this Pre-Audit summary to Clipboard? (Ch\u00e9p b\u00e1o c\u00e1o v\u00e0o Clipboard?)")
+        End If
+        resp = ModUI.MsgBoxW(promptMsg, vbYesNo + vbQuestion + vbDefaultButton1, ModConstants.Uni("Pre-Audit X-Ray & Lint"))
+        If resp = 6 Then ModClipboard.SetClipboardTextUnicode fullClipTxt
     End If
+CleanScan:
+    On Error Resume Next
+    Application.StatusBar = False
+    ModTableIndex.InvalidateAllIndexes
+    ModCustomProfile.ResetStyleProfileCache
+    ModCustomProfile.ResetTagCache
+    ModPatchMatcher.ResetRefBmCache
+    Err.Clear
+    ModMain.g_IsEngineRunning = False
+    ModRibbonCallbacks.InvalidateRibbonSafe
+    Exit Function
+ScanFail:
+    Dim failNum As Long, failDesc As String
+    failNum = Err.Number
+    failDesc = Err.Description
+    ExecutePreAuditScan = "ERR|RUNTIME|" & failDesc
+    If showUi Then
+        On Error Resume Next
+        Application.StatusBar = False
+        ModUI.MsgBoxW "Pre-Audit Scan error (" & failNum & "): " & failDesc, vbCritical, ModConstants.Uni("Pre-Audit Scan Error")
+    End If
+    Resume CleanScan
 End Function
 
 Public Sub RunPreAuditScan()

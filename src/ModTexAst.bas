@@ -131,6 +131,19 @@ Private Sub SkipSpaces()
     Loop
 End Sub
 
+Public Function CurTokType() As Integer
+    If mTokenCount = 0 Then
+        CurTokType = TOK_EOF
+        Exit Function
+    End If
+    SkipSpaces
+    If mPos <= mTokenCount Then
+        CurTokType = mTokens(mPos).TokType
+    Else
+        CurTokType = TOK_EOF
+    End If
+End Function
+
 Public Function CurTok() As TexToken
     Dim eofTok As TexToken
 
@@ -168,37 +181,69 @@ Public Function ExpectTok(ByVal tType As Integer, Optional ByVal valStr As Strin
 End Function
 
 Public Function FindMatching(ByVal openType As Integer, ByVal closeType As Integer) As Long
-    Dim depth As Long, dBrace As Long, dEnv As Long, i As Long, tt As Integer
-    depth = 0
-    dBrace = 0
-    dEnv = 0
-    For i = mPos To mTokenCount
+    Dim i As Long, dParen As Long, dBrack As Long, dBrace As Long, dLeft As Long, dEnv As Long
+    Dim tt As Integer
+    Dim v As String
+
+    i = mPos
+    Do While i <= mTokenCount
         tt = mTokens(i).TokType
-        If tt = TOK_EOF Then Exit Function
-        If tt = openType Then
-            depth = depth + 1
-        ElseIf tt = closeType Then
-            depth = depth - 1
-            If depth = 0 Then
-                FindMatching = i
+        Select Case tt
+            Case TOK_EOF
                 Exit Function
-            End If
-        ElseIf openType <> TOK_LBRACE And tt = TOK_LBRACE Then
-            dBrace = dBrace + 1
-        ElseIf openType <> TOK_LBRACE And tt = TOK_RBRACE Then
-            If dBrace = 0 Then Exit Function
-            dBrace = dBrace - 1
-        ElseIf (tt = TOK_AMP Or tt = TOK_NEWLINE) And dEnv = 0 Then
-            Exit Function
-        ElseIf tt = TOK_CMD Then
-            If mTokens(i).Val = "\begin" Then
-                dEnv = dEnv + 1
-            ElseIf mTokens(i).Val = "\end" Then
+            Case TOK_LPAREN
+                dParen = dParen + 1
+            Case TOK_RPAREN
+                If dParen = 0 Then Exit Function
+                dParen = dParen - 1
+                If closeType = TOK_RPAREN And dParen = 0 Then
+                    If dBrack = 0 And dBrace = 0 And dLeft = 0 And dEnv = 0 Then
+                        FindMatching = i
+                    End If
+                    Exit Function
+                End If
+            Case TOK_LBRACK
+                dBrack = dBrack + 1
+            Case TOK_RBRACK
+                If dBrack = 0 Then Exit Function
+                dBrack = dBrack - 1
+                If closeType = TOK_RBRACK And dBrack = 0 Then
+                    If dParen = 0 And dBrace = 0 And dLeft = 0 And dEnv = 0 Then
+                        FindMatching = i
+                    End If
+                    Exit Function
+                End If
+            Case TOK_LBRACE
+                dBrace = dBrace + 1
+            Case TOK_RBRACE
+                If dBrace = 0 Then Exit Function
+                dBrace = dBrace - 1
+                If closeType = TOK_RBRACE And dBrace = 0 Then
+                    If dParen = 0 And dBrack = 0 And dLeft = 0 And dEnv = 0 Then
+                        FindMatching = i
+                    End If
+                    Exit Function
+                End If
+            Case TOK_AMP, TOK_NEWLINE
                 If dEnv = 0 Then Exit Function
-                dEnv = dEnv - 1
-            End If
-        End If
-    Next i
+            Case TOK_CMD
+                v = mTokens(i).Val
+                If v = "\left" Then
+                    dLeft = dLeft + 1
+                    i = SkipOneNonSpace(i)
+                ElseIf v = "\right" Then
+                    If dLeft = 0 Then Exit Function
+                    dLeft = dLeft - 1
+                    i = SkipOneNonSpace(i)
+                ElseIf v = "\begin" Then
+                    dEnv = dEnv + 1
+                ElseIf v = "\end" Then
+                    If dEnv = 0 Then Exit Function
+                    dEnv = dEnv - 1
+                End If
+        End Select
+        i = i + 1
+    Loop
     FindMatching = 0
 End Function
 
@@ -214,14 +259,24 @@ End Function
 
 Public Function FindMatchingBar() As Long
     Dim i As Long, dParen As Long, dBrack As Long, dBrace As Long, dLeft As Long, dEnv As Long
-    Dim t As TexToken
+    Dim nextIdx As Long
+    Dim tt As Integer
+    Dim v As String
     Dim atTop As Boolean
+
+    nextIdx = SkipOneNonSpace(mPos)
+    If nextIdx <= mTokenCount Then
+        tt = mTokens(nextIdx).TokType
+        If tt = TOK_SUB Or tt = TOK_SUP Then
+            Exit Function
+        End If
+    End If
 
     i = mPos + 1
     Do While i <= mTokenCount
-        t = mTokens(i)
+        tt = mTokens(i).TokType
         atTop = (dParen = 0 And dBrack = 0 And dBrace = 0 And dLeft = 0 And dEnv = 0)
-        Select Case t.TokType
+        Select Case tt
             Case TOK_EOF
                 Exit Function
             Case TOK_LPAREN
@@ -250,32 +305,34 @@ Public Function FindMatchingBar() As Long
                     Exit Function
                 End If
             Case TOK_CMD
-                If t.Val = "\left" Then
+                v = mTokens(i).Val
+                If v = "\left" Then
                     dLeft = dLeft + 1
                     i = SkipOneNonSpace(i)
-                ElseIf t.Val = "\right" Then
+                ElseIf v = "\right" Then
                     If dLeft = 0 Then
                         Exit Function
                     End If
                     dLeft = dLeft - 1
                     i = SkipOneNonSpace(i)
-                ElseIf t.Val = "\begin" Then
+                ElseIf v = "\begin" Then
                     dEnv = dEnv + 1
-                ElseIf t.Val = "\end" Then
+                ElseIf v = "\end" Then
                     If dEnv = 0 Then
                         Exit Function
                     End If
                     dEnv = dEnv - 1
                 ElseIf atTop Then
-                    If InStr(1, "|\le|\ge|\leq|\geq|\neq|\approx|\in|", "|" & t.Val & "|") > 0 Then
+                    If InStr(1, "|\le|\ge|\leq|\geq|\neq|\approx|\in|", "|" & v & "|") > 0 Then
                         Exit Function
                     End If
                 End If
             Case TOK_CHAR
                 If atTop Then
-                    If InStr(1, "<>=,", t.Val) > 0 Then
+                    v = mTokens(i).Val
+                    If InStr(1, "<>=,", v) > 0 Then
                         Exit Function
-                    ElseIf t.Val = "|" Then
+                    ElseIf v = "|" Then
                         FindMatchingBar = i
                         Exit Function
                     End If
@@ -287,10 +344,13 @@ End Function
 
 Public Function ConsumeLiteralTextArg() As String
     Dim tok As TexToken
+    Dim tt As Integer
     Dim depth As Long
-    Dim res As String, cmd As String, sym As String
+    Dim cmd As String, sym As String, piece As String
+    Dim parts() As String
+    Dim pCount As Long, pCap As Long
 
-    If CurTok().TokType <> TOK_LBRACE Then
+    If CurTokType() <> TOK_LBRACE Then
         tok = ConsumeTok()
         ConsumeLiteralTextArg = tok.Val
         Exit Function
@@ -298,13 +358,16 @@ Public Function ConsumeLiteralTextArg() As String
     mInTextMode = True
     AdvanceTok
     depth = 1
-    res = ""
-    Do While CurTok().TokType <> TOK_EOF
-        If CurTok().TokType = TOK_LBRACE Then
+    pCap = 32
+    ReDim parts(1 To pCap)
+    pCount = 0
+    Do While CurTokType() <> TOK_EOF
+        tt = CurTokType()
+        piece = ""
+        If tt = TOK_LBRACE Then
             depth = depth + 1
-            res = res & "{"
             AdvanceTok
-        ElseIf CurTok().TokType = TOK_RBRACE Then
+        ElseIf tt = TOK_RBRACE Then
             depth = depth - 1
             If depth = 0 Then
                 mInTextMode = False
@@ -312,41 +375,57 @@ Public Function ConsumeLiteralTextArg() As String
                 Exit Do
             End If
             AdvanceTok
-            res = res & "}"
-        ElseIf CurTok().TokType = TOK_SPACE Then
+        ElseIf tt = TOK_SPACE Then
             AdvanceTok
-            res = res & " "
-        ElseIf CurTok().TokType = TOK_ESC_CHAR Then
+            piece = " "
+        ElseIf tt = TOK_ESC_CHAR Then
             tok = ConsumeTok()
-            res = res & tok.Val
-        ElseIf CurTok().TokType = TOK_CMD Then
+            piece = tok.Val
+        ElseIf tt = TOK_CMD Then
             tok = ConsumeTok()
             cmd = tok.Val
             If cmd = "\ " Or cmd = "\," Or cmd = "\:" Or cmd = "\;" Or cmd = "\quad" Or cmd = "\qquad" Then
-                res = res & " "
+                piece = " "
             ElseIf cmd = "\%" Or cmd = "\$" Or cmd = "\&" Or cmd = "\_" Or cmd = "\#" Or cmd = "\{" Or cmd = "\}" Then
-                res = res & Mid$(cmd, 2)
+                piece = Mid$(cmd, 2)
             ElseIf cmd = "\u" Or cmd = "\v" Or cmd = "\t" Or cmd = "\r" Or cmd = "\b" Or cmd = "\c" Or cmd = "\d" Or cmd = "\k" Or cmd = "\H" Then
                 ' Drop LaTeX accent command to avoid raw leak
+            ElseIf cmd = "\text" Or cmd = "\textbf" Or cmd = "\textit" Or cmd = "\textrm" Or cmd = "\textsf" Or cmd = "\texttt" Or cmd = "\emph" Or cmd = "\mbox" Then
+                ' Drop nested text formatting command cleanly
             Else
                 sym = ModTexSymbols.LookupGreek(cmd)
                 If Len(sym) = 0 Then
                     sym = ModTexSymbols.LookupSymbol(cmd)
                 End If
                 If Len(sym) > 0 Then
-                    res = res & sym
+                    piece = sym
                 Else
-                    res = res & Mid$(cmd, 2)
+                    SetAmbiguous True
                 End If
             End If
         Else
             tok = ConsumeTok()
-            res = res & tok.Val
+            piece = tok.Val
+        End If
+        If Len(piece) > 0 Then
+            pCount = pCount + 1
+            If pCount > pCap Then
+                pCap = pCap * 2
+                ReDim Preserve parts(1 To pCap)
+            End If
+            parts(pCount) = piece
         End If
     Loop
     mInTextMode = False
     If depth > 0 Then mIsAmbiguous = True
-    ConsumeLiteralTextArg = res
+    If pCount = 0 Then
+        ConsumeLiteralTextArg = ""
+    ElseIf pCount = 1 Then
+        ConsumeLiteralTextArg = parts(1)
+    Else
+        ReDim Preserve parts(1 To pCount)
+        ConsumeLiteralTextArg = Join(parts, "")
+    End If
 End Function
 
 Public Sub SkipLimitMods()
@@ -357,14 +436,17 @@ Public Sub SkipLimitMods()
 End Sub
 
 Public Function HandleSubSup(ByVal baseNode As Long) As Long
-    Dim subNode As Long, supNode As Long, resNode As Long, extraSup As Long, listNd As Long, isPrimeSup As Boolean, primes As String
+    Dim subNode As Long, supNode As Long, resNode As Long, extraSup As Long, listNd As Long, primeNd As Long
+    Dim isPrimeSup As Boolean, primes As String
+    Dim tt As Integer
     Dim supItems As Collection
-    Do While CurTok().TokType = TOK_SUB Or CurTok().TokType = TOK_SUP Or (CurTok().TokType = TOK_CHAR And CurTok().Val = "'")
-        If CurTok().TokType = TOK_SUB Then
+    Do
+        tt = CurTokType()
+        If tt = TOK_SUB Then
             If subNode <> 0 Then Exit Do
             AdvanceTok
             subNode = ModTexParser.ParseArgument()
-        ElseIf CurTok().TokType = TOK_SUP Then
+        ElseIf tt = TOK_SUP Then
             If supNode <> 0 And Not isPrimeSup Then Exit Do
             AdvanceTok
             extraSup = ModTexParser.ParseArgument()
@@ -379,16 +461,34 @@ Public Function HandleSubSup(ByVal baseNode As Long) As Long
             Else
                 supNode = extraSup
             End If
-        Else
-            If supNode <> 0 Then Exit Do
+        ElseIf tt = TOK_CHAR Then
+            If mTokens(mPos).Val <> "'" Then Exit Do
             primes = ""
-            Do While CurTok().TokType = TOK_CHAR And CurTok().Val = "'"
+            Do While CurTokType() = TOK_CHAR
+                If mTokens(mPos).Val <> "'" Then Exit Do
                 primes = primes & ChrW(&H2032)
                 AdvanceTok
             Loop
-            supNode = AllocNode(AST_CHAR)
-            mNodes(supNode).Str1 = primes
-            isPrimeSup = True
+            primeNd = AllocNode(AST_CHAR)
+            mNodes(primeNd).Str1 = primes
+            If supNode = 0 Then
+                supNode = primeNd
+                isPrimeSup = True
+            Else
+                If mNodes(supNode).NodeType = AST_LIST And Not (mNodes(supNode).ChildList Is Nothing) Then
+                    mNodes(supNode).ChildList.Add primeNd
+                Else
+                    Set supItems = New Collection
+                    supItems.Add supNode
+                    supItems.Add primeNd
+                    listNd = AllocNode(AST_LIST)
+                    Set mNodes(listNd).ChildList = supItems
+                    supNode = listNd
+                End If
+                isPrimeSup = False
+            End If
+        Else
+            Exit Do
         End If
     Loop
     If subNode <> 0 Or supNode <> 0 Then

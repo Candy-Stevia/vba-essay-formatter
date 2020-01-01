@@ -31,16 +31,18 @@ Public Type CustomElemStyle
     HasSpaceAfter As Boolean
     SpaceAfterPts As Single
 End Type
-
 Public Const TAG_CODE_SKIP As Long = -1
+Public Const TAG_CODE_REF As Long = -2
+Public Const TAG_CODE_REF_SUB As Long = -3
+Public Const TAG_CODE_APP As Long = -4
 Public g_ForceVisualReset As Boolean
+Public g_ResetScopeMask As Long
+Public g_ResetBodyInlineFont As Boolean
 Private Const STYLE_VAR_PREFIX As String = "af_style_"
-
 Private mStyles(1 To 8) As CustomElemStyle
 Private mHasStyle(1 To 8) As Boolean
 Private mHasAnyStyle As Boolean
 Private mActiveSummary As String
-
 Private Function ScopeKeyToIndex(ByVal scopeKey As String) As Long
     Dim keys As Variant, u As String, i As Long
     u = UCase$(Trim$(scopeKey))
@@ -52,29 +54,25 @@ Private Function ScopeKeyToIndex(ByVal scopeKey As String) As Long
         End If
     Next i
 End Function
-
 Private Function IndexToScopeKey(ByVal idx As Long) As String
     Dim keys As Variant
     keys = Array("", "L1", "L2", "L3", "L4", "TBL", "FIG", "SRC", "BODY")
     If idx >= 1 And idx <= 8 Then IndexToScopeKey = CStr(keys(idx))
 End Function
-
 Public Function IsValidTagType(ByVal tagType As String) As Boolean
     Dim u As String
     u = UCase$(Trim$(tagType))
-    If u = "SKIP" Or u = "CLEAR" Then
-        IsValidTagType = True
-    Else
-        IsValidTagType = (ScopeKeyToIndex(u) >= 1 And ScopeKeyToIndex(u) <= 7)
-    End If
+    If u = "SKIP" Or u = "CLEAR" Or u = "REF" Or u = "REF_SUB" Or u = "APP" Then IsValidTagType = True Else IsValidTagType = (ScopeKeyToIndex(u) >= 1 And ScopeKeyToIndex(u) <= 7)
 End Function
-
 Public Function TagTypeToCode(ByVal tagType As String) As Long
     Dim u As String
     u = UCase$(Trim$(tagType))
-    If u = "SKIP" Then TagTypeToCode = TAG_CODE_SKIP Else TagTypeToCode = ScopeKeyToIndex(u)
+    TagTypeToCode = ScopeKeyToIndex(u)
+    If u = "SKIP" Then TagTypeToCode = TAG_CODE_SKIP
+    If u = "REF" Then TagTypeToCode = TAG_CODE_REF
+    If u = "REF_SUB" Then TagTypeToCode = TAG_CODE_REF_SUB
+    If u = "APP" Then TagTypeToCode = TAG_CODE_APP
 End Function
-
 Private Function ParseStrictNumber(ByVal s As String, ByVal minVal As Single, ByVal maxVal As Single, ByRef outVal As Single) As Boolean
     Dim t As String, k As Long, ch As Long, dotCnt As Long, hasDigit As Boolean
     t = Trim$(s)
@@ -97,7 +95,6 @@ Private Function ParseStrictNumber(ByVal s As String, ByVal minVal As Single, By
     outVal = v
     ParseStrictNumber = True
 End Function
-
 Private Function ParseHexByte(ByVal h2 As String, ByRef outByte As Long) As Boolean
     If Len(h2) <> 2 Then Exit Function
     Dim k As Long, ch As Long
@@ -108,7 +105,6 @@ Private Function ParseHexByte(ByVal h2 As String, ByRef outByte As Long) As Bool
     outByte = CLng("&H" & h2)
     ParseHexByte = True
 End Function
-
 Private Function ParseColorSpec(ByVal s As String, ByRef outColor As Long, ByRef outNorm As String) As Boolean
     Dim t As String, r As Long, g As Long, b As Long
     t = LCase$(Trim$(s))
@@ -126,7 +122,6 @@ Private Function ParseColorSpec(ByVal s As String, ByRef outColor As Long, ByRef
     outNorm = UCase$(t)
     ParseColorSpec = True
 End Function
-
 Private Function ParseBoolProp(ByVal v As String, ByVal keyName As String, ByRef hasFlag As Boolean, _
                                ByRef outFlag As Boolean, ByRef outPair As String, ByRef outErr As String) As Boolean
     Dim t As String
@@ -140,7 +135,6 @@ Private Function ParseBoolProp(ByVal v As String, ByVal keyName As String, ByRef
     outPair = keyName & "=" & t
     ParseBoolProp = True
 End Function
-
 Private Function ParseNumProp(ByVal v As String, ByVal keyName As String, ByVal minV As Single, ByVal maxV As Single, _
                               ByVal toCmPts As Boolean, ByRef hasFlag As Boolean, ByRef outVal As Single, _
                               ByRef outPair As String, ByRef outErr As String) As Boolean
@@ -154,7 +148,6 @@ Private Function ParseNumProp(ByVal v As String, ByVal keyName As String, ByVal 
     outPair = keyName & "=" & Trim$(Str$(numV))
     ParseNumProp = True
 End Function
-
 Private Function IsValidFontName(ByVal s As String) As Boolean
     Dim t As String, k As Long, ch As Long
     t = Trim$(s)
@@ -363,12 +356,33 @@ Private Sub ClearStyleArrays()
     mHasAnyStyle = False
     mActiveSummary = ""
 End Sub
-
 Public Sub ResetStyleProfileCache()
     ClearStyleArrays
     g_ForceVisualReset = False
+    g_ResetScopeMask = 0
+    g_ResetBodyInlineFont = False
 End Sub
-
+Public Function ShouldVisualResetScope(ByVal elemType As Long) As Boolean
+    If Not g_ForceVisualReset Then Exit Function
+    If g_ResetScopeMask = 0 Then
+        ShouldVisualResetScope = True
+    ElseIf elemType >= 1 And elemType <= 8 Then
+        ShouldVisualResetScope = ((g_ResetScopeMask And CLng(2 ^ (elemType - 1))) <> 0)
+    End If
+End Function
+Private Sub SnapshotResetScopes(ByVal doc As Document)
+    LoadStyleProfile doc
+    g_ResetScopeMask = 0
+    g_ResetBodyInlineFont = False
+    Dim i As Long, bs As CustomElemStyle
+    For i = 1 To 8
+        If mHasStyle(i) Then g_ResetScopeMask = g_ResetScopeMask Or CLng(2 ^ (i - 1))
+    Next i
+    If mHasStyle(ElementTypeNormalParagraph) Then
+        bs = mStyles(ElementTypeNormalParagraph)
+        g_ResetBodyInlineFont = (bs.HasBold Or bs.HasItalic Or bs.HasUnderline Or bs.HasColor Or bs.HasUpper)
+    End If
+End Sub
 Public Sub LoadStyleProfile(ByVal doc As Document)
     ClearStyleArrays
     If doc Is Nothing Then Exit Sub
@@ -392,7 +406,6 @@ Public Sub LoadStyleProfile(ByVal doc As Document)
         End If
     Next i
 End Sub
-
 Public Function ResolveEffectiveFont(ByVal elemType As Long, ByVal fallbackFont As String) As String
     If mHasAnyStyle And elemType >= 1 And elemType <= 8 Then
         If mHasStyle(elemType) And mStyles(elemType).HasFont Then
@@ -402,7 +415,6 @@ Public Function ResolveEffectiveFont(ByVal elemType As Long, ByVal fallbackFont 
     End If
     ResolveEffectiveFont = fallbackFont
 End Function
-
 Public Function HasCustomStyle(ByVal elemType As Long) As Boolean
     If mHasAnyStyle And elemType >= 1 And elemType <= 8 Then HasCustomStyle = mHasStyle(elemType)
 End Function
@@ -412,7 +424,34 @@ End Function
 Public Function GetActiveStyleSummary() As String
     GetActiveStyleSummary = mActiveSummary
 End Function
-
+Private Sub ApplyInlineStyleSlice(ByVal r As Range, ByRef st As CustomElemStyle)
+    If st.HasBold Then
+        r.Font.Bold = st.IsBold
+        r.Bold = st.IsBold
+    End If
+    If st.HasItalic Then r.Font.Italic = st.IsItalic
+    If st.HasUnderline Then
+        If st.IsUnderline Then r.Font.Underline = 1 Else r.Font.Underline = 0
+    End If
+End Sub
+Private Sub ApplyInlineStyleSkippingMath(ByVal doc As Document, ByVal rng As Range, _
+                                         ByRef st As CustomElemStyle, ByVal hasOMaths As Boolean)
+    If Not (st.HasBold Or st.HasItalic Or st.HasUnderline) Then Exit Sub
+    Dim mCnt As Long
+    If hasOMaths Then mCnt = rng.OMaths.Count
+    If mCnt = 0 Then
+        ApplyInlineStyleSlice rng, st
+        Exit Sub
+    End If
+    Dim segPos As Long, mIdx As Long, omRng As Range
+    segPos = rng.Start
+    For mIdx = 1 To mCnt
+        Set omRng = rng.OMaths(mIdx).Range
+        If omRng.Start > segPos Then ApplyInlineStyleSlice doc.Range(segPos, omRng.Start), st
+        If omRng.End > segPos Then segPos = omRng.End
+    Next mIdx
+    If segPos < rng.End Then ApplyInlineStyleSlice doc.Range(segPos, rng.End), st
+End Sub
 Public Sub ApplyCustomStyleOverrides(ByVal doc As Document, ByVal rng As Range, ByVal elemType As Long, _
                                      ByVal hasOMaths As Boolean, Optional ByVal skipFont As Boolean = False)
     If Not mHasAnyStyle Or elemType < 1 Or elemType > 8 Then Exit Sub
@@ -422,14 +461,7 @@ Public Sub ApplyCustomStyleOverrides(ByVal doc As Document, ByVal rng As Range, 
     If st.HasFont And Not skipFont Then ModFormatSingle.ApplyFontNameSkippingMath doc, rng, st.FontName, hasOMaths
     If st.HasSize Then rng.Font.Size = st.FontSize
     If st.HasColor Then rng.Font.Color = st.FontColor
-    If st.HasBold Then
-        rng.Font.Bold = st.IsBold
-        rng.Bold = st.IsBold
-    End If
-    If st.HasItalic Then rng.Font.Italic = st.IsItalic
-    If st.HasUnderline Then
-        If st.IsUnderline Then rng.Font.Underline = 1 Else rng.Font.Underline = 0
-    End If
+    ApplyInlineStyleSkippingMath doc, rng, st, hasOMaths
     If st.HasUpper Then ModFormatSingle.ApplyAllCapsSkippingMath doc, rng, st.IsUpper, hasOMaths
     If st.HasAlign Then rng.ParagraphFormat.Alignment = st.Alignment
     If st.HasFirstIndent Then rng.ParagraphFormat.FirstLineIndent = st.FirstIndentPts
@@ -472,31 +504,46 @@ Private Sub CountAndClearProfileItems(ByVal doc As Document, ByVal doDeleteStyle
     Err.Clear
 End Sub
 
+Private Sub RunVisualResetFormat(ByVal doc As Document, ByVal snapMask As Long, ByVal snapBodyInline As Boolean)
+    On Error Resume Next
+    If Len(Trim$(doc.Path)) > 0 And Not doc.ReadOnly And Not ModBackup.IsCloudPath(doc.FullName) Then doc.Save
+    Err.Clear
+    On Error GoTo ResetCleanup
+    g_ResetScopeMask = snapMask
+    g_ResetBodyInlineFont = snapBodyInline
+    g_ForceVisualReset = True
+    ModRibbonCallbacks.EnsureConfigInitialized
+    ModMain.RunEngine doc, EngineModeFull
+ResetCleanup:
+    g_ForceVisualReset = False
+    g_ResetScopeMask = 0
+    g_ResetBodyInlineFont = False
+    On Error GoTo 0
+End Sub
+
 Public Function ResetCustomProfileForTest(ByVal doc As Document, ByVal clearTags As Boolean, ByVal reformatClean As Boolean) As String
     If doc Is Nothing Then
         ResetCustomProfileForTest = "ERR|NODOC"
         Exit Function
     End If
-    Dim sCnt As Long, tCnt As Long
+    Dim sCnt As Long, tCnt As Long, snapMask As Long, snapBodyInline As Boolean
+    SnapshotResetScopes doc
+    snapMask = g_ResetScopeMask
+    snapBodyInline = g_ResetBodyInlineFont
     CountAndClearProfileItems doc, True, clearTags, sCnt, tCnt
     ResetStyleProfileCache
     ResetTagCache
-    If reformatClean Then
-        On Error Resume Next
-        If Len(Trim$(doc.Path)) > 0 And Not doc.ReadOnly And Not ModBackup.IsCloudPath(doc.FullName) Then doc.Save
-        Err.Clear
-        On Error GoTo 0
-        g_ForceVisualReset = True
-        ModRibbonCallbacks.EnsureConfigInitialized
-        ModMain.RunEngine doc, EngineModeFull
-        g_ForceVisualReset = False
-    End If
+    If reformatClean Then RunVisualResetFormat doc, snapMask, snapBodyInline
     ResetCustomProfileForTest = "OK|" & CStr(sCnt) & "|" & CStr(IIf(clearTags, tCnt, 0))
 End Function
 
 Public Sub ResetCustomProfileInteractive(ByVal doc As Document)
     If ModMain.g_IsEngineRunning Or ModMathController.g_IsMathBuilding Then Exit Sub
-    If doc Is Nothing Then Exit Sub
+    Dim errMsg As String
+    If Not ModBackup.ValidateWritableDocument(doc, errMsg) Then
+        ModUI.MsgBoxW errMsg, vbExclamation, ModConstants.Uni("Reset Custom Style (V\u1ec1 m\u1eb7c \u0111\u1ecbnh)")
+        Exit Sub
+    End If
     Dim sCnt As Long, tCnt As Long
     CountAndClearProfileItems doc, False, False, sCnt, tCnt
     If sCnt = 0 And tCnt = 0 Then
@@ -505,30 +552,28 @@ Public Sub ResetCustomProfileInteractive(ByVal doc As Document)
         Exit Sub
     End If
     Dim qMsg As String, ans As Long, clearTags As Boolean
-    qMsg = ModConstants.Uni("Active custom profile detected (Ph\u00e1t hi\u1ec7n h\u1ed3 s\u01a1 t\u00f9y ch\u1ec9nh):") & vbCrLf & _
-           "- @STYLE scopes: " & CStr(sCnt) & vbCrLf & _
-           "- @TAG bookmarks: " & CStr(tCnt) & vbCrLf & vbCrLf & _
-           ModConstants.Uni("[Yes] Reset @STYLE only, keep @TAG (Ch\u1ec9 x\u00f3a @STYLE, gi\u1eef @TAG)") & vbCrLf & _
-           ModConstants.Uni("[No] Reset BOTH @STYLE and @TAG (X\u00f3a s\u1ea1ch c\u1ea3 @STYLE v\u00e0 @TAG)") & vbCrLf & _
-           ModConstants.Uni("[Cancel] Cancel (H\u1ee7y)")
+    qMsg = ModConstants.Uni("Active custom profile detected (Ph\u00e1t hi\u1ec7n h\u1ed3 s\u01a1 t\u00f9y ch\u1ec9nh):") & vbCrLf & "- @STYLE scopes: " & CStr(sCnt) & vbCrLf & "- @TAG bookmarks: " & CStr(tCnt) & vbCrLf & vbCrLf & ModConstants.Uni("[Yes] Reset @STYLE only, keep @TAG (Ch\u1ec9 x\u00f3a @STYLE, gi\u1eef @TAG)") & vbCrLf & ModConstants.Uni("[No] Reset BOTH @STYLE and @TAG (X\u00f3a s\u1ea1ch c\u1ea3 @STYLE v\u00e0 @TAG)") & vbCrLf & ModConstants.Uni("[Cancel] Cancel (H\u1ee7y)")
     ans = ModUI.MsgBoxW(qMsg, vbYesNoCancel + vbQuestion + vbDefaultButton1, ModConstants.Uni("Reset Custom Style (V\u1ec1 m\u1eb7c \u0111\u1ecbnh)"))
     If ans = 2 Then Exit Sub
     clearTags = (ans = 7)
+    Dim wasSavedBefore As Boolean, snapMask As Long, snapBodyInline As Boolean, objUndo As Object, isUndoStarted As Boolean
+    wasSavedBefore = doc.Saved
+    SnapshotResetScopes doc
+    snapMask = g_ResetScopeMask
+    snapBodyInline = g_ResetBodyInlineFont
+    isUndoStarted = ModBackup.StartUndoSafe("Reset Custom Style Profile", objUndo)
     CountAndClearProfileItems doc, True, clearTags, sCnt, tCnt
+    ModBackup.EndUndoSafe objUndo, isUndoStarted
     ResetStyleProfileCache
     ResetTagCache
-    Dim reMsg As String, reAns As Long
-    reMsg = ModConstants.Uni("Custom profile cleared. Run Format All now to restore default black/clean typography? (\u0110\u00e3 x\u00f3a h\u1ed3 s\u01a1 t\u00f9y ch\u1ec9nh. Ch\u1ea1y l\u1ea1i Format All ngay \u0111\u1ec3 t\u1ea9y m\u00e0u/font/g\u1ea1ch ch\u00e2n v\u1ec1 chu\u1ea9n m\u1eb7c \u0111\u1ecbnh?)")
-    reAns = ModUI.MsgBoxW(reMsg, vbYesNo + vbQuestion + vbDefaultButton1, ModConstants.Uni("Re-Apply Default Style (\u00c1p l\u1ea1i chu\u1ea9n m\u1eb7c \u0111\u1ecbnh)"))
+    Dim reAns As Long
+    reAns = ModUI.MsgBoxW(ModConstants.Uni("Custom profile cleared. Run Format All now to restore default black/clean typography? (\u0110\u00e3 x\u00f3a h\u1ed3 s\u01a1 t\u00f9y ch\u1ec9nh. Ch\u1ea1y l\u1ea1i Format All ngay \u0111\u1ec3 t\u1ea9y m\u00e0u/font/g\u1ea1ch ch\u00e2n v\u1ec1 chu\u1ea9n m\u1eb7c \u0111\u1ecbnh?)"), vbYesNo + vbQuestion + vbDefaultButton1, ModConstants.Uni("Re-Apply Default Style (\u00c1p l\u1ea1i chu\u1ea9n m\u1eb7c \u0111\u1ecbnh)"))
     If reAns = 6 Then
-        On Error Resume Next
-        If Len(Trim$(doc.Path)) > 0 And Not doc.ReadOnly And Not ModBackup.IsCloudPath(doc.FullName) Then doc.Save
-        Err.Clear
-        On Error GoTo 0
-        g_ForceVisualReset = True
-        ModRibbonCallbacks.EnsureConfigInitialized
-        ModMain.RunEngine doc, EngineModeFull
-        g_ForceVisualReset = False
+        If Not wasSavedBefore Then
+            ModUI.MsgBoxW ModConstants.Uni("Unsaved edits detected. Press Ctrl+S first, then run Format All. (T\u00e0i li\u1ec7u c\u00f3 thay \u0111\u1ed5i ch\u01b0a l\u01b0u. H\u00e3y nh\u1ea5n Ctrl+S tr\u01b0\u1edbc r\u1ed3i ch\u1ea1y Format All.)"), vbInformation, ModConstants.Uni("Save Required (C\u1ea7n l\u01b0u file)")
+            Exit Sub
+        End If
+        RunVisualResetFormat doc, snapMask, snapBodyInline
     End If
 End Sub
 

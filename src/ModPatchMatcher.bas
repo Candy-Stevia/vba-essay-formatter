@@ -16,6 +16,8 @@ Private mRefBmDocPtr As LongPtr
 Private mRefBmCount As Long
 Private mRefBmNames() As String
 Private mRefBmStarts() As Long
+Public g_LastInferredBodyStart As Long
+Public g_LastHasExplicitMarkers As Boolean
 
 Public Type RefTargetInfo
     KeyId As String
@@ -62,6 +64,13 @@ Public Type PatchOp
     IsAlreadySynced As Boolean
 End Type
 
+Public Sub ResetRefBmCache()
+    mRefBmDocPtr = 0
+    mRefBmCount = 0
+    Erase mRefBmNames
+    Erase mRefBmStarts
+End Sub
+
 Public Sub SyncCitationLinkColors(ByVal doc As Document, ByVal linkColor As Long)
     If doc Is Nothing Then Exit Sub
     If doc.Hyperlinks.Count = 0 Then Exit Sub
@@ -102,8 +111,8 @@ Public Sub NormalizeWithPosMap(ByVal rawTxt As String, ByRef outNorm As String, 
     For i = 1 To rawLen
         ch = Mid$(rawTxt, i, 1)
         code = AscW(ch) And &HFFFF&
-        If code = 13 Or code = 7 Or code = &HAD Or code = &H200B Or code = &H200C Or code = &H200D Or code = &HFEFF Then
-            ' Strip paragraph mark, cell bell marker, soft hyphen, and zero-width chars
+        If code = 13 Or code = 7 Or code = 2 Or code = 5 Or code = &HAD Or code = &H200B Or code = &H200C Or code = &H200D Or code = &HFEFF& Then
+            ' Strip paragraph mark, cell bell, footnote/comment markers, soft hyphen, and zero-width chars
         ElseIf code = 32 Or code = 9 Or code = 10 Or code = 11 Or code = 12 Or code = &HA0 Or code = &H202F Then
             If outLen > 0 Then
                 If Not inSpace Then
@@ -157,7 +166,7 @@ Private Function ExtractRefBmNum(ByVal bmName As String) As Long
     If Left$(bmName, 7) <> BM_PREFIX_REF Then Exit Function
     Dim tail As String, k As Long, ch As Long
     tail = Mid$(bmName, 8)
-    If Len(tail) = 0 Then Exit Function
+    If Len(tail) = 0 Or Len(tail) > 9 Then Exit Function
     For k = 1 To Len(tail)
         ch = AscW(Mid$(tail, k, 1))
         If ch < 48 Or ch > 57 Then Exit Function
@@ -165,21 +174,123 @@ Private Function ExtractRefBmNum(ByVal bmName As String) As Long
     ExtractRefBmNum = CLng(tail)
 End Function
 
+Public Function InferBodyStartPara(ByVal doc As Document, ByRef outHasExplicitMarkers As Boolean) As Long
+    outHasExplicitMarkers = False
+    InferBodyStartPara = 1
+    If doc Is Nothing Then Exit Function
+    Dim totalParas As Long, mk As MarkerLocations, errTmp As String
+    totalParas = doc.Paragraphs.Count
+    If totalParas < 1 Then Exit Function
+    If ModMarkerLexer.ScanMarkers(doc, mk, errTmp) Then
+        If mk.HasContentStart Then
+            outHasExplicitMarkers = True
+            InferBodyStartPara = mk.ContentStartParaIndex + 1
+            Exit Function
+        End If
+    End If
+    Dim maxFrontPos As Long, toc As TableOfContents, tof As TableOfFigures
+    On Error Resume Next
+    For Each toc In doc.TablesOfContents
+        If toc.Range.End > maxFrontPos Then maxFrontPos = toc.Range.End
+    Next toc
+    For Each tof In doc.TablesOfFigures
+        If tof.Range.End > maxFrontPos Then maxFrontPos = tof.Range.End
+    Next tof
+    Err.Clear
+    On Error GoTo 0
+    Dim reBodyL1 As Object, reFrontL1 As Object, reLoa As Object
+    Set reBodyL1 = CreateObject("VBScript.RegExp")
+    reBodyL1.IgnoreCase = True
+    reBodyL1.Pattern = "^(?:(?:chapter|" & ModConstants.Uni("ch\u01b0\u01a1ng") & ")\s+1\b|1\.\s*(?:introduction|" & ModConstants.Uni("m\u1edf \u0111\u1ea7u|gi\u1edbi thi\u1ec7u|t\u1ed5ng quan") & "))"
+    Set reFrontL1 = CreateObject("VBScript.RegExp")
+    reFrontL1.IgnoreCase = True
+    reFrontL1.Pattern = "^(?:tables? of contents?|list of (?:tables?|figures?|acronyms?|abbreviations?)|abstract|acknowledg(?:e)?ments?|declaration|" & ModConstants.Uni("m\u1ee5c l\u1ee5c|danh m\u1ee5c|l\u1eddi c[\u1ea3\u00e1]m \u01a1n|l\u1eddi cam \u0111oan|t\u00f3m t\u1eaft") & ")\b"
+    Set reLoa = CreateObject("VBScript.RegExp")
+    reLoa.IgnoreCase = True
+    reLoa.Pattern = "^(?:list of (?:acronyms?|abbreviations?)|" & ModConstants.Uni("danh m\u1ee5c (?:c\u00e1c )?(?:t\u1eeb|ch\u1eef|k\u00fd hi\u1ec7u)") & ")"
+    Dim p As Paragraph, pIdx As Long, afterFrontIdx As Long, bodyL1Idx As Long, limitScan As Long, maxLoaScan As Long
+    Dim r As Range, cleanTxt As String, oLvl As Long, inTbl As Boolean
+    afterFrontIdx = 1
+    maxLoaScan = CLng(totalParas * 0.35)
+    If maxLoaScan < 30 Then maxLoaScan = 30
+    limitScan = CLng(totalParas * 0.5)
+    If limitScan < 60 Then limitScan = 60
+    For Each p In doc.Paragraphs
+        pIdx = pIdx + 1
+        Set r = p.Range
+        If maxFrontPos > 0 And r.Start < maxFrontPos Then
+            afterFrontIdx = pIdx + 1
+        Else
+            cleanTxt = NormalizeStr(r.Text)
+            If Len(cleanTxt) > 0 Then
+                inTbl = False
+                On Error Resume Next
+                inTbl = CBool(r.Information(12))
+                Err.Clear
+                On Error GoTo 0
+                If Not inTbl And pIdx <= maxLoaScan And Len(cleanTxt) <= 100 And reLoa.Test(cleanTxt) Then
+                    On Error Resume Next
+                    If pIdx < totalParas Then
+                        If CBool(doc.Paragraphs(pIdx + 1).Range.Information(12)) Then
+                            If doc.Paragraphs(pIdx + 1).Range.Tables(1).Range.End > maxFrontPos Then maxFrontPos = doc.Paragraphs(pIdx + 1).Range.Tables(1).Range.End
+                        End If
+                    End If
+                    Err.Clear
+                    On Error GoTo 0
+                    afterFrontIdx = pIdx + 1
+                ElseIf Not inTbl And Len(cleanTxt) <= 150 Then
+                    If reBodyL1.Test(cleanTxt) Then
+                        bodyL1Idx = pIdx
+                        Exit For
+                    End If
+                    oLvl = 10
+                    On Error Resume Next
+                    oLvl = p.OutlineLevel
+                    Err.Clear
+                    On Error GoTo 0
+                    If oLvl = 1 And pIdx > 1 And Not reFrontL1.Test(cleanTxt) Then
+                        bodyL1Idx = pIdx
+                        Exit For
+                    End If
+                End If
+            End If
+            If pIdx > limitScan And afterFrontIdx > 1 Then Exit For
+        End If
+    Next p
+    If bodyL1Idx > 0 Then
+        InferBodyStartPara = bodyL1Idx
+    ElseIf afterFrontIdx <= totalParas Then
+        InferBodyStartPara = afterFrontIdx
+    End If
+End Function
+
 Public Function ScanDocForPatch(ByVal doc As Document, ByRef outMarkers As MarkerLocations, _
                                 ByRef outParas() As ScannedPara, ByRef outCount As Long, _
                                 ByRef outMaxRefNum As Long, ByRef outErr As String) As Boolean
+    On Error GoTo ScanErr
     outCount = 0
     outMaxRefNum = 0
     outErr = ""
     If doc Is Nothing Then
         outErr = "No active document."
-        Exit Function
+        GoTo CleanScanExit
     End If
-    If Not ModMarkerLexer.ScanMarkers(doc, outMarkers, outErr) Then Exit Function
-    If Not outMarkers.HasContentStart Then
-        outErr = ModConstants.Uni("Missing =contentStart() marker. Insert =contentStart() before running AI Patch. (Thi\u1ebfu th\u1ebb =contentStart().)")
-        Exit Function
+    Dim scanMkOk As Boolean, mkErr As String, hasExpMk As Boolean, startP As Long
+    scanMkOk = ModMarkerLexer.ScanMarkers(doc, outMarkers, mkErr)
+    If Not scanMkOk Then
+        If outMarkers.HasContentStart Or outMarkers.HasContentEnd Then
+            outErr = mkErr
+            GoTo CleanScanExit
+        End If
     End If
+    If outMarkers.HasContentStart Then
+        hasExpMk = True
+        startP = outMarkers.ContentStartParaIndex + 1
+    Else
+        startP = InferBodyStartPara(doc, hasExpMk)
+    End If
+    g_LastInferredBodyStart = startP
+    g_LastHasExplicitMarkers = hasExpMk
     Dim bm As Bookmark, bmNum As Long, bmCap As Long
     mRefBmDocPtr = ObjPtr(doc)
     mRefBmCount = 0
@@ -228,11 +339,12 @@ Public Function ScanDocForPatch(ByVal doc As Document, ByRef outMarkers As Marke
     reMark.IgnoreCase = True
     reMark.Pattern = ModConstants.GetPatternMarker()
 
-    Dim startP As Long, endBodyP As Long, totalParas As Long
-    startP = outMarkers.ContentStartParaIndex + 1
+    Dim totalParas As Long
     totalParas = doc.Paragraphs.Count
-    If outMarkers.HasContentEnd Then endBodyP = outMarkers.ContentEndParaIndex - 1 Else endBodyP = totalParas
-    If startP > totalParas Then Exit Function
+    If startP > totalParas Then
+        outErr = "No body paragraphs found after =contentStart()."
+        GoTo CleanScanExit
+    End If
     Dim cap As Long
     cap = totalParas
     If cap < 8 Then cap = 8
@@ -240,10 +352,12 @@ Public Function ScanDocForPatch(ByVal doc As Document, ByRef outMarkers As Marke
 
     Dim docHasMath As Boolean, inRefZone As Boolean, p As Paragraph, pIdx As Long, refCls As Long
     Dim rng As Range, rawTxt As String, normTxt As String, ps() As Long, pe() As Long, nLen As Long
+    Dim rStart As Long, rEnd As Long, checkH1Style As Boolean
     Dim inTbl As Boolean, isL1 As Boolean, isHead As Boolean, isExcl As Boolean, stName As String
     Dim exclS() As Long, exclE() As Long, exclCount As Long
     ModPatchDom.CollectExcludedSpans doc, exclS, exclE, exclCount
     docHasMath = (doc.OMaths.Count > 0)
+    If docHasMath Then ModTableIndex.BuildOMathIndex doc
     inRefZone = False
     pIdx = 0
     For Each p In doc.Paragraphs
@@ -252,30 +366,48 @@ Public Function ScanDocForPatch(ByVal doc As Document, ByRef outMarkers As Marke
         rawTxt = rng.Text
         NormalizeWithPosMap rawTxt, normTxt, ps, pe, nLen
         If nLen > 0 And Not reMark.Test(normTxt) Then
-            inTbl = ModTableIndex.IsRangeInTable(rng)
+            rStart = rng.Start
+            rEnd = rng.End
+            inTbl = ModTableIndex.IsPosInTable(rStart)
             isL1 = False
             isHead = False
             isExcl = False
-            If exclCount > 0 Then isExcl = ModPatchDom.IsInExcludedSpans(rng.Start, rng.End, exclS, exclE, exclCount)
-            If Not isExcl And docHasMath Then isExcl = IsMathBlockOnly(rng, rawTxt)
+            If exclCount > 0 Then isExcl = ModPatchDom.IsInExcludedSpans(rStart, rEnd, exclS, exclE, exclCount)
+            If Not isExcl And docHasMath Then
+                If ModTableIndex.HasOMathInSpan(rStart, rEnd) Then isExcl = IsMathBlockOnly(rng, rawTxt)
+            End If
             If Not isExcl And Not inTbl And nLen <= MAX_HEADING_LEN Then
                 If reL1.Test(normTxt) Or ModLocale.IsRomanLevel1(normTxt) Then isL1 = True
                 If Not isL1 Then
-                    stName = ""
                     On Error Resume Next
-                    stName = LCase$(rng.Style.NameLocal)
-                    On Error GoTo 0
-                    If Left$(stName, 9) = "heading 1" Then isL1 = True
+                    If p.OutlineLevel = 1 Then isL1 = True
+                    Err.Clear
+                    On Error GoTo ScanErr
                 End If
                 If isL1 Or reL2.Test(normTxt) Or reL3.Test(normTxt) Or reL4.Test(normTxt) Or reTbl.Test(normTxt) Or reFig.Test(normTxt) Then
                     isHead = True
                 End If
             End If
+            Dim tagForcedZone As Long, pOutLvl As Long
+            tagForcedZone = 0
             If Not isExcl And hasTags Then
-                tagCode = ModCustomProfile.LookupTagForRange(rng.Start, rng.End)
+                tagCode = ModCustomProfile.LookupTagForRange(rStart, rEnd)
                 If tagCode = TAG_CODE_SKIP Then
                     isL1 = False
                     isHead = False
+                ElseIf tagCode = TAG_CODE_REF Then
+                    isL1 = True
+                    isHead = True
+                    inRefZone = True
+                    tagForcedZone = 1
+                ElseIf tagCode = TAG_CODE_REF_SUB Then
+                    isHead = True
+                    tagForcedZone = 2
+                ElseIf tagCode = TAG_CODE_APP Then
+                    isL1 = True
+                    isHead = True
+                    inRefZone = False
+                    tagForcedZone = -1
                 ElseIf tagCode = ElementTypeLevel1 Then
                     isL1 = True
                     isHead = True
@@ -286,7 +418,7 @@ Public Function ScanDocForPatch(ByVal doc As Document, ByRef outMarkers As Marke
                     isHead = False
                 End If
             End If
-            If Not isExcl And Not inTbl And nLen <= MAX_HEADING_LEN And pIdx >= startP Then
+            If tagForcedZone = 0 And Not isExcl And Not inTbl And nLen <= MAX_HEADING_LEN And pIdx >= startP Then
                 If isL1 Then
                     refCls = ModLocale.ClassifyRefZoneHeading(normTxt)
                     If refCls = 1 Then
@@ -298,16 +430,28 @@ Public Function ScanDocForPatch(ByVal doc As Document, ByRef outMarkers As Marke
                     If ModLocale.ClassifyRefZoneHeading(normTxt) = -1 Then inRefZone = False
                 End If
             End If
+            If inRefZone And Not isHead And Not isExcl And Not inTbl And nLen <= 120 Then
+                If ModLocale.IsRefSubheading(normTxt) Then
+                    isHead = True
+                Else
+                    pOutLvl = 10
+                    On Error Resume Next
+                    pOutLvl = p.OutlineLevel
+                    Err.Clear
+                    On Error GoTo ScanErr
+                    If pOutLvl >= 2 And pOutLvl <= 4 Then isHead = True
+                End If
+            End If
             outCount = outCount + 1
             outParas(outCount).ParaIndex = pIdx
-            outParas(outCount).RangeStart = rng.Start
-            outParas(outCount).RangeEnd = rng.End
+            outParas(outCount).RangeStart = rStart
+            outParas(outCount).RangeEnd = rEnd
             outParas(outCount).RawText = rawTxt
             outParas(outCount).NormText = normTxt
             outParas(outCount).PosStart = ps
             outParas(outCount).PosEnd = pe
             outParas(outCount).NormLen = nLen
-            outParas(outCount).InBodyScope = (pIdx >= startP And pIdx <= endBodyP)
+            outParas(outCount).InBodyScope = (pIdx >= startP And Not inRefZone And Not isExcl)
             outParas(outCount).IsLevel1 = isL1
             outParas(outCount).IsHeading = isHead
             outParas(outCount).IsInTable = inTbl
@@ -315,8 +459,16 @@ Public Function ScanDocForPatch(ByVal doc As Document, ByRef outMarkers As Marke
             outParas(outCount).IsExcluded = isExcl
         End If
     Next p
-    ModCustomProfile.ResetTagCache
     ScanDocForPatch = True
+CleanScanExit:
+    On Error Resume Next
+    ModCustomProfile.ResetTagCache
+    Err.Clear
+    Exit Function
+ScanErr:
+    If Len(outErr) = 0 Then outErr = "Scan error (" & Err.Number & "): " & Err.Description
+    ScanDocForPatch = False
+    Resume CleanScanExit
 End Function
 
 Private Function FindCachedRefBmInPara(ByVal doc As Document, ByVal pStart As Long, ByVal pEnd As Long) As String
@@ -340,10 +492,23 @@ Private Function FindCachedRefBmInPara(ByVal doc As Document, ByVal pStart As Lo
     Next bm
 End Function
 
+Private Function SafeLeftUtf16(ByVal s As String, ByVal maxUnits As Long) As String
+    If maxUnits <= 0 Then Exit Function
+    If Len(s) <= maxUnits Then
+        SafeLeftUtf16 = s
+        Exit Function
+    End If
+    Dim cutLen As Long, lastCode As Long
+    cutLen = maxUnits
+    lastCode = AscW(Mid$(s, cutLen, 1)) And &HFFFF&
+    If lastCode >= &HD800& And lastCode <= &HDBFF& Then cutLen = cutLen - 1
+    If cutLen > 0 Then SafeLeftUtf16 = Left$(s, cutLen)
+End Function
+
 Private Function BuildShortRefTip(ByVal normTxt As String) As String
     Dim s As String
     s = Trim$(normTxt)
-    If Len(s) > 80 Then s = Left$(s, 77) & "..."
+    If Len(s) > 80 Then s = SafeLeftUtf16(s, 77) & "..."
     BuildShortRefTip = s
 End Function
 

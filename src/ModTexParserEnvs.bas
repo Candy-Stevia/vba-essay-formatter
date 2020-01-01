@@ -20,6 +20,20 @@ Public Function ParseEnvironment() As Long
     ModTexAst.mDepth = ModTexAst.mDepth - 1
 End Function
 
+Private Sub SkipOptionalEnvPosArg()
+    Dim optIdx As Long
+    Dim closeIdx As Long
+    Dim optVal As String
+    Dim closeVal As String
+
+    If ModTexAst.CurTok().TokType <> TOK_LBRACK Then Exit Sub
+    optVal = PeekNextNonSpaceVal(ModTexAst.mPos, optIdx)
+    If optVal <> "t" And optVal <> "b" And optVal <> "c" Then Exit Sub
+    closeVal = PeekNextNonSpaceVal(optIdx, closeIdx)
+    If closeVal <> "]" Or ModTexAst.mTokens(closeIdx).TokType <> TOK_RBRACK Then Exit Sub
+    ModTexAst.mPos = closeIdx + 1
+End Sub
+
 Private Function ParseEnvironmentCore() As Long
     Dim envName As String, endName As String, colSpec As String, colAligns As String, ch As String, alName As String
     Dim i As Long, cellList As Long, pNode As Long, matNode As Long, prevPos As Long
@@ -30,6 +44,9 @@ Private Function ParseEnvironmentCore() As Long
     ' Expect \begin
     ModTexAst.AdvanceTok
     envName = Trim$(ModTexAst.ConsumeLiteralTextArg())
+    If envName = "array" Or envName = "aligned" Or envName = "gathered" Then
+        SkipOptionalEnvPosArg
+    End If
 
     ' Determine column alignments
     If envName = "cases" Then
@@ -57,6 +74,10 @@ Private Function ParseEnvironmentCore() As Long
                 alName = "right"
             ElseIf ch = "c" Then
                 alName = "center"
+            ElseIf ch <> " " And ch <> "|" Then
+                ModTexAst.SetAmbiguous True
+                ParseEnvironmentCore = 0
+                Exit Function
             End If
             If Len(alName) > 0 Then
                 If Len(colAligns) > 0 Then
@@ -93,6 +114,11 @@ Private Function ParseEnvironmentCore() As Long
                     Exit Function
                 End If
                 If envName = "equation" Or envName = "equation*" Then
+                    If rows.Count > 0 Or curRow.Count > 0 Then
+                        ModTexAst.SetAmbiguous True
+                        ParseEnvironmentCore = 0
+                        Exit Function
+                    End If
                     cellList = ModTexAst.AllocNode(AST_LIST)
                     Set ModTexAst.mNodes(cellList).ChildList = cellItems
                     ParseEnvironmentCore = cellList
@@ -226,7 +252,10 @@ Public Function IsCloseDelim(ByVal s As String) As Boolean
 End Function
 
 Public Function IsSymmetricDelim(ByVal s As String) As Boolean
-    IsSymmetricDelim = (InStr(1, "|||\vert|\||\Vert|", "|" & s & "|") > 0)
+    Dim sep As String
+    If Len(s) = 0 Then Exit Function
+    sep = Chr$(1)
+    IsSymmetricDelim = (InStr(1, sep & "|" & sep & "\vert" & sep & "\|" & sep & "\Vert" & sep, sep & s & sep) > 0)
 End Function
 
 Public Function PeekNextNonSpaceVal(ByVal afterIdx As Long, ByRef outIdx As Long) As String
@@ -308,9 +337,16 @@ Public Function IsBigOpenMatched(ByVal cmd As String, ByVal rawDelim As String) 
             ElseIf (t.Val = cmd Or t.Val = closeCmd) And atTop Then
                 nextVal = PeekNextNonSpaceVal(i, nextIdx)
                 If isSym And IsSymmetricDelim(nextVal) Then
-                    If t.Val = closeCmd And MapDelimToken(nextVal) = MapDelimToken(rawDelim) And dBig = 0 Then
-                        IsBigOpenMatched = True
-                        Exit Function
+                    If t.Val = cmd And cmd <> closeCmd Then
+                        dBig = dBig + 1
+                    ElseIf t.Val = closeCmd And MapDelimToken(nextVal) = MapDelimToken(rawDelim) Then
+                        If dBig = 0 Then
+                            IsBigOpenMatched = True
+                            Exit Function
+                        End If
+                        dBig = dBig - 1
+                    ElseIf t.Val = closeCmd And dBig > 0 Then
+                        dBig = dBig - 1
                     End If
                 ElseIf t.Val = cmd And IsOpenDelim(nextVal) Then
                     dBig = dBig + 1
@@ -350,43 +386,50 @@ Private Function ParseDelimitedBlockCore(ByVal endCmd As String, ByVal begRaw As
     Dim p As Long, prevPos As Long, bodyNode As Long, nextIdx As Long
     Dim foundEnd As Boolean, isMatch As Boolean, isSym As Boolean
     Dim nextVal As String
+    Dim tt As Integer
 
     Set inner = New Collection
     foundEnd = False
     isSym = IsSymmetricDelim(begRaw)
     outEndChr = ""
 
-    Do While ModTexAst.CurTok().TokType <> TOK_EOF
-        If ModTexAst.CurTok().TokType = TOK_CMD And ModTexAst.CurTok().Val = endCmd Then
-            isMatch = False
-            If endCmd = "\right" Then
-                isMatch = True
-            Else
-                nextVal = PeekNextNonSpaceVal(ModTexAst.mPos, nextIdx)
-                If isSym Then
-                    isMatch = IsSymmetricDelim(nextVal) And (MapDelimToken(nextVal) = MapDelimToken(begRaw))
+    Do
+        tt = ModTexAst.CurTokType()
+        If tt = TOK_EOF Then Exit Do
+        If tt = TOK_CMD Then
+            If ModTexAst.mTokens(ModTexAst.mPos).Val = endCmd Then
+                isMatch = False
+                If endCmd = "\right" Then
+                    isMatch = True
                 Else
-                    isMatch = IsCloseDelim(nextVal)
+                    nextVal = PeekNextNonSpaceVal(ModTexAst.mPos, nextIdx)
+                    If isSym Then
+                        isMatch = IsSymmetricDelim(nextVal) And (MapDelimToken(nextVal) = MapDelimToken(begRaw))
+                    Else
+                        isMatch = IsCloseDelim(nextVal)
+                    End If
                 End If
-            End If
-            If isMatch Then
-                ModTexAst.AdvanceTok
-                If ModTexAst.CurTok().TokType = TOK_EOF Then
-                    ModTexAst.SetAmbiguous True
-                Else
-                    outEndChr = MapDelimToken(ModTexAst.CurTok().Val)
+                If isMatch Then
                     ModTexAst.AdvanceTok
+                    If ModTexAst.CurTokType() = TOK_EOF Then
+                        ModTexAst.SetAmbiguous True
+                    Else
+                        outEndChr = MapDelimToken(ModTexAst.mTokens(ModTexAst.mPos).Val)
+                        ModTexAst.AdvanceTok
+                    End If
+                    foundEnd = True
+                    Exit Do
                 End If
-                foundEnd = True
-                Exit Do
             End If
         End If
         prevPos = ModTexAst.mPos
         p = ModTexParser.ParsePrimary()
         If p <> 0 Then
             inner.Add p
-        ElseIf ModTexAst.mPos = prevPos And ModTexAst.CurTok().TokType <> TOK_EOF Then
-            ModTexAst.AdvanceTok
+        ElseIf ModTexAst.mPos = prevPos Then
+            If ModTexAst.CurTokType() <> TOK_EOF Then
+                ModTexAst.AdvanceTok
+            End If
         End If
     Loop
 

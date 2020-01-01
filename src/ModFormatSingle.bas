@@ -14,34 +14,16 @@ Public Sub SafeSetOutlineLevel(ByVal rng As Range, ByVal lvl As Long)
     Err.Clear
 End Sub
 
-Private Function HasHeadingStyleInRange(ByVal rng As Range) As Boolean
-    Dim stLvl As Long
-    On Error Resume Next
-    stLvl = rng.Style.ParagraphFormat.OutlineLevel
-    If Err.Number <> 0 Then
-        Err.Clear
-        HasHeadingStyleInRange = True
-        Exit Function
-    End If
-    HasHeadingStyleInRange = (stLvl < 10)
-End Function
-
 Public Sub EnsureOutlineLevelDetachHeading(ByVal doc As Document, ByVal rng As Range, ByVal targetLvl As Long)
-    Dim curLvl As Long, p As Paragraph, pLvl As Long, needDetach As Boolean, pStyleLvl As Long
+    Dim curLvl As Long, p As Paragraph, pLvl As Long, needDetach As Boolean, pStyleLvl As Long, pListType As Long
     On Error Resume Next
     curLvl = rng.ParagraphFormat.OutlineLevel
     needDetach = (Err.Number <> 0 Or curLvl <> targetLvl)
     Err.Clear
-    If Not needDetach And targetLvl = 10 Then
-        If HasHeadingStyleInRange(rng) Then needDetach = True
-    End If
     If Not needDetach Then Exit Sub
     rng.ParagraphFormat.OutlineLevel = targetLvl
     needDetach = (Err.Number <> 0 Or rng.ParagraphFormat.OutlineLevel <> targetLvl)
     Err.Clear
-    If Not needDetach And targetLvl = 10 Then
-        If HasHeadingStyleInRange(rng) Then needDetach = True
-    End If
     If needDetach Then
         For Each p In rng.Paragraphs
             pLvl = p.Range.ParagraphFormat.OutlineLevel
@@ -51,16 +33,26 @@ Public Sub EnsureOutlineLevelDetachHeading(ByVal doc As Document, ByVal rng As R
             End If
             pStyleLvl = 10
             If targetLvl = 10 Then
-                pStyleLvl = p.Range.Style.ParagraphFormat.OutlineLevel
+                pStyleLvl = p.Style.ParagraphFormat.OutlineLevel
                 If Err.Number <> 0 Then
                     Err.Clear
                     pStyleLvl = 1
                 End If
             End If
             If pLvl <> targetLvl Or (targetLvl = 10 And pStyleLvl < 10) Then
-                p.Range.Style = doc.Styles(-1)
-                p.Range.ParagraphFormat.OutlineLevel = targetLvl
-                Err.Clear
+                pListType = 0
+                If targetLvl <= 4 Then
+                    pListType = p.Range.ListFormat.ListType
+                    If Err.Number <> 0 Then
+                        Err.Clear
+                        pListType = 0
+                    End If
+                End If
+                If Not (targetLvl <= 4 And pListType >= 3) Then
+                    p.Range.Style = doc.Styles(-1)
+                    p.Range.ParagraphFormat.OutlineLevel = targetLvl
+                    Err.Clear
+                End If
             End If
         Next p
     End If
@@ -70,8 +62,6 @@ End Sub
 Private Sub ApplyFullFontName(ByVal r As Range, ByVal fontName As String)
     On Error Resume Next
     r.Font.Name = fontName
-    r.Font.NameAscii = fontName
-    r.Font.NameOther = fontName
     r.Font.NameFarEast = fontName
     r.Font.NameBi = fontName
     Err.Clear
@@ -108,13 +98,15 @@ Public Sub ApplyUpperSkippingMath(ByVal doc As Document, ByVal rng As Range, ByV
         rng.Case = 1
         Exit Sub
     End If
-    If rng.OMaths.Count = 0 Then
+    Dim mCnt As Long
+    mCnt = rng.OMaths.Count
+    If mCnt = 0 Then
         rng.Case = 1
         Exit Sub
     End If
     Dim segPos As Long, mIdx As Long, omRng As Range
     segPos = rng.Start
-    For mIdx = 1 To rng.OMaths.Count
+    For mIdx = 1 To mCnt
         Set omRng = rng.OMaths(mIdx).Range
         If omRng.Start > segPos Then doc.Range(segPos, omRng.Start).Case = 1
         If omRng.End > segPos Then segPos = omRng.End
@@ -128,13 +120,15 @@ Public Sub ApplyAllCapsSkippingMath(ByVal doc As Document, ByVal rng As Range, _
         rng.Font.AllCaps = enableCaps
         Exit Sub
     End If
-    If rng.OMaths.Count = 0 Then
+    Dim mCnt As Long
+    mCnt = rng.OMaths.Count
+    If mCnt = 0 Then
         rng.Font.AllCaps = enableCaps
         Exit Sub
     End If
     Dim segPos As Long, mIdx As Long, omRng As Range
     segPos = rng.Start
-    For mIdx = 1 To rng.OMaths.Count
+    For mIdx = 1 To mCnt
         Set omRng = rng.OMaths(mIdx).Range
         If omRng.Start > segPos Then doc.Range(segPos, omRng.Start).Font.AllCaps = enableCaps
         If omRng.End > segPos Then segPos = omRng.End
@@ -155,7 +149,8 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
     Else
         targetLvl = 10
     End If
-    If tType >= ElementTypeLevel1 And tType <= ElementTypeIgnoredManualList Then
+    If (tType >= ElementTypeLevel1 And tType <= ElementTypeInlinePicture) Or _
+       tType = ElementTypeTableCell Or tType = ElementTypeIgnoredManualList Then
         EnsureOutlineLevelDetachHeading doc, rng, targetLvl
     End If
     Select Case tType
@@ -181,7 +176,6 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             ApplyFontNameSkippingMath doc, rng, effFont, hasOMaths
             rng.Font.Size = fontSize
             rng.Font.Bold = True
-            rng.Bold = True
             rng.Font.Italic = False
             rng.ParagraphFormat.Alignment = 0
             rng.ParagraphFormat.FirstLineIndent = indentPts
@@ -196,7 +190,6 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             ApplyFontNameSkippingMath doc, rng, effFont, hasOMaths
             rng.Font.Size = fontSize
             rng.Font.Bold = True
-            rng.Bold = True
             rng.Font.Italic = True
             rng.ParagraphFormat.Alignment = 0
             rng.ParagraphFormat.FirstLineIndent = indentPts
@@ -225,7 +218,6 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             ApplyFontNameSkippingMath doc, rng, effFont, hasOMaths
             rng.Font.Size = fontSize
             rng.Font.Bold = True
-            rng.Bold = True
             rng.Font.Italic = False
             rng.ParagraphFormat.Alignment = 0
             rng.ParagraphFormat.FirstLineIndent = indentPts
@@ -244,7 +236,6 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             ApplyFontNameSkippingMath doc, rng, effFont, hasOMaths
             rng.Font.Size = fontSize
             rng.Font.Bold = True
-            rng.Bold = True
             rng.Font.Italic = False
             rng.ParagraphFormat.Alignment = 1
             rng.ParagraphFormat.FirstLineIndent = 0#
@@ -266,7 +257,10 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             ApplyFontNameSkippingMath doc, rng, fontName, hasOMaths
             rng.Font.Size = fontSize
             If rng.Cells.Count > 0 Then
+                On Error Resume Next
                 rng.Cells(1).VerticalAlignment = 1
+                Err.Clear
+                On Error GoTo 0
             End If
             rng.ParagraphFormat.Alignment = 1
             rng.ParagraphFormat.FirstLineIndent = 0#
@@ -284,16 +278,24 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             rng.HighlightColorIndex = 6
     End Select
     If tType >= ElementTypeLevel1 And tType <= ElementTypeNormalParagraph Then
-        If ModCustomProfile.g_ForceVisualReset Then
+        If tType = ElementTypeNormalParagraph Then
+            If ModCustomProfile.g_ForceVisualReset And ModCustomProfile.g_ResetBodyInlineFont Then
+                rng.Font.Color = -16777216
+                rng.Font.Underline = 0
+                rng.Font.AllCaps = False
+                rng.Font.Bold = False
+                rng.Font.Italic = False
+            End If
+            If ModCustomProfile.ShouldVisualResetScope(ElementTypeNormalParagraph) Then
+                rng.ParagraphFormat.SpaceBefore = 0#
+                rng.ParagraphFormat.SpaceAfter = 0#
+            End If
+        ElseIf ModCustomProfile.ShouldVisualResetScope(tType) Then
             rng.Font.Color = -16777216
             rng.Font.Underline = 0
             rng.Font.AllCaps = False
             rng.ParagraphFormat.SpaceBefore = 0#
             rng.ParagraphFormat.SpaceAfter = 0#
-            If tType = ElementTypeNormalParagraph Then
-                rng.Font.Bold = False
-                rng.Font.Italic = False
-            End If
         End If
         ModCustomProfile.ApplyCustomStyleOverrides doc, rng, tType, hasOMaths, True
     End If

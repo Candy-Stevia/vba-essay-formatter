@@ -16,8 +16,11 @@ End Type
 Public Sub ResetAnchorPara(ByVal doc As Document, ByVal pIdx As Long, ByVal anchorBm As String)
     Dim pRng As Range
     Set pRng = doc.Paragraphs(pIdx).Range
-    If pRng.End - 1 > pRng.Start Then doc.Range(pRng.Start, pRng.End - 1).Delete
+    If pRng.End - 1 > pRng.Start And InStr(1, pRng.Text, Chr(12)) = 0 Then
+        doc.Range(pRng.Start, pRng.End - 1).Delete
+    End If
     Set pRng = doc.Paragraphs(pIdx).Range
+    ModFormatSingle.EnsureOutlineLevelDetachHeading doc, pRng, 10
     pRng.HighlightColorIndex = 0
     pRng.Case = 0
     pRng.Font.Bold = False
@@ -38,10 +41,10 @@ ErrMath:
     IsMathBlockPara = False
 End Function
 
-Private Function IsOldTocPara(ByVal rng As Range, ByRef sArr() As Long, ByRef eArr() As Long, ByVal n As Long) As Boolean
+Private Function IsOldTocPara(ByVal rStart As Long, ByRef sArr() As Long, ByRef eArr() As Long, ByVal n As Long) As Boolean
     Dim k As Long
     For k = 1 To n
-        If rng.Start >= sArr(k) And rng.Start < eArr(k) Then GoTo Hit
+        If rStart >= sArr(k) And rStart < eArr(k) Then GoTo Hit
     Next k
     Exit Function
 Hit:
@@ -51,6 +54,7 @@ End Function
 Private Function CleanQuickText(ByVal raw As String) As String
     Dim s As String
     s = Replace(Replace(Replace(raw, vbCr, ""), Chr(7), ""), Chr(11), " ")
+    s = Replace(Replace(Replace(s, Chr(1), ""), Chr(2), ""), Chr(5), "")
     CleanQuickText = Trim$(Replace(Replace(Replace(s, vbTab, " "), Chr(10), " "), Chr(12), " "))
 End Function
 
@@ -85,16 +89,24 @@ Private Sub ScanAndFormatQuickItems(ByVal doc As Document, ByRef markers As Mark
     hasTags = ModCustomProfile.HasActiveTags()
     ModScanner.CollectOldListRanges doc, tocS, tocE, numOldTocs
     Dim i As Long, p As Paragraph, rng As Range, raw As String, clean As String
-    Dim inContent As Boolean, inPost As Boolean, tType As Long, bmName As String, inTbl As Boolean, isSkip As Boolean
+    Dim inContent As Boolean, inPost As Boolean, tType As Long, bmName As String, inTbl As Boolean, isSkip As Boolean, isListPara As Boolean
     Dim isCandLen As Boolean, hasXref As Boolean, tagCode As Long, rStart As Long, rEnd As Long, hasParaMath As Boolean
+    Dim sbPos As Long, gateLen As Long
     i = 0
     For Each p In doc.Paragraphs
         i = i + 1
         ModProgress.ProgressUpdate i, totalParas
+        If ModProgress.g_CancelRequested Then Exit Sub
         Set rng = p.Range
         raw = rng.Text
         If Len(raw) <= 2 And Not hasTags Then GoTo NextQuickPara
-        isCandLen = (Len(raw) > 2 And Len(raw) <= 350)
+        sbPos = InStr(1, raw, Chr(11))
+        If sbPos > 0 Then
+            gateLen = sbPos - 1
+        Else
+            gateLen = Len(raw)
+        End If
+        isCandLen = (gateLen > 2 And gateLen <= 350)
         hasXref = False
         If wantXref And i > markers.ContentStartParaIndex And Len(raw) > 5 Then hasXref = reXrefQuick.Test(raw)
         tagCode = 0
@@ -113,19 +125,24 @@ Private Sub ScanAndFormatQuickItems(ByVal doc As Document, ByRef markers As Mark
             tType = ElementTypeUnknown
             hasParaMath = False
             If docHasMath Then hasParaMath = ModTableIndex.HasOMathInSpan(rStart, rEnd)
-            isSkip = latexFlags(i) Or IsOldTocPara(rng, tocS, tocE, numOldTocs)
+            isSkip = latexFlags(i) Or IsOldTocPara(rStart, tocS, tocE, numOldTocs)
             If Not isSkip And hasParaMath Then isSkip = IsMathBlockPara(rng, True)
             inTbl = ModTableIndex.IsPosInTable(rStart)
-            If Not isSkip And (isCandLen Or tagCode > 0) Then
+            isListPara = ModTableIndex.IsPosInList(rStart)
+            If Not isSkip And (isCandLen Or tagCode <> 0) Then
                 clean = CleanQuickText(raw)
                 If Len(clean) > 0 Then
                     If tagCode > 0 Then
                         tType = tagCode
+                    ElseIf tagCode = TAG_CODE_REF Or tagCode = TAG_CODE_APP Then
+                        tType = ElementTypeLevel1
+                    ElseIf tagCode = TAG_CODE_REF_SUB Then
+                        tType = ElementTypeLevel2
                     ElseIf tagCode = TAG_CODE_SKIP Then
                         tType = ElementTypeUnknown
                         ModFormatSingle.EnsureOutlineLevelDetachHeading doc, rng, 10
-                    ElseIf ModTableIndex.IsPosInList(rStart) Then
-                        isSkip = True
+                    ElseIf isListPara Then
+                        ' List items are excluded from heading/caption classification, but stay eligible for Cross-Ref
                     ElseIf Left$(clean, 1) = "=" And qp.ReMrk.Test(clean) Then
                     ElseIf inTbl And Not ModScanner.IsLayoutFigureCaption(rng, clean, qp.ReFig, patFig) Then
                     ElseIf qp.ReManToc.Test(clean) Then
@@ -168,6 +185,9 @@ Private Sub ScanAndFormatQuickItems(ByVal doc As Document, ByRef markers As Mark
                             cntNotes = cntNotes + 1
                         End If
                         ModFormatSingle.FormatSingleItem doc, rng, tType, bmName, g_Config.FontName, g_Config.FontSize, g_Config.IndentPts, hasParaMath
+                        If g_Config.LineSpacingMode <> "ls_keep" And tType >= ElementTypeLevel1 And tType <= ElementTypeSourceNote Then
+                            ModFormatCore.ApplyLineSpacing rng, g_Config.LineSpacingMode
+                        End If
                         ModFormatBatch.AppendQuickSnap qSnaps, qCount, qCap, i, rng.Start, rng.End, tType, raw, clean
                         If tType <> ElementTypeSourceNote Then
                             itemCount = itemCount + 1
@@ -178,12 +198,16 @@ Private Sub ScanAndFormatQuickItems(ByVal doc As Document, ByRef markers As Mark
                         End If
                     End If
                 End If
-            ElseIf Not isSkip And ModTableIndex.IsPosInList(rStart) Then
-                isSkip = True
             End If
             If tType = ElementTypeUnknown And Not isSkip And hasXref Then
                 Dim candType As Long
-                If inTbl Then candType = ElementTypeTableCell Else candType = ElementTypeNormalParagraph
+                If inTbl Then
+                    candType = ElementTypeTableCell
+                ElseIf isListPara Then
+                    candType = ElementTypeList
+                Else
+                    candType = ElementTypeNormalParagraph
+                End If
                 ModFormatBatch.AppendQuickSnap qSnaps, qCount, qCap, i, rStart, rEnd, candType, raw, CleanQuickText(raw)
             End If
         End If
@@ -277,7 +301,13 @@ Private Sub BuildQuickSingleList(ByVal doc As Document, ByRef slot As QuickZoneS
     End If
     slot.ItemCount = built
     slot.EntryCount = built
-    If slot.MarkerPara = 0 And pIdx + 1 + built < doc.Paragraphs.Count Then doc.Paragraphs(pIdx + 1 + built).Range.Delete
+    If slot.MarkerPara = 0 And pIdx + 1 + built < doc.Paragraphs.Count Then
+        Dim ancText As String
+        ancText = doc.Paragraphs(pIdx + 1 + built).Range.Text
+        If InStr(1, ancText, Chr(12)) = 0 Then
+            doc.Paragraphs(pIdx + 1 + built).Range.Delete
+        End If
+    End If
 End Sub
 
 Private Sub FinalizeQuickZoneBookmarks(ByVal doc As Document, ByRef slots() As QuickZoneSlot)
@@ -308,7 +338,10 @@ End Sub
 Public Sub RunQuickUpdate(Optional ByVal targetDoc As Document = Nothing)
     If ModMain.g_IsEngineRunning Or ModMathController.g_IsMathBuilding Then Exit Sub
     ModMain.g_IsEngineRunning = True
+    ModRibbonCallbacks.InvalidateRibbonSafe
     On Error GoTo MainErr
+    Dim wasCancelled As Boolean
+    wasCancelled = False
     Dim doc As Document
     If targetDoc Is Nothing Then
         If Documents.Count > 0 Then Set doc = ActiveDocument
@@ -322,22 +355,31 @@ Public Sub RunQuickUpdate(Optional ByVal targetDoc As Document = Nothing)
     ModCustomProfile.LoadStyleProfile doc
 
     Dim errMsg As String, markers As MarkerLocations, wasTracking As Boolean, isSuccess As Boolean
+    Dim deferMsg As String, deferStyle As Long, deferTitle As String
     If Not ModBackup.ValidatePreFlightConditions(doc, errMsg) Then
         ModRibbonCallbacks.g_LastError = errMsg
-        ModUI.MsgBoxW errMsg, vbExclamation, ModConstants.Uni("Pre-Flight Check (Ki\u1ec3m tra tr\u01b0\u1edbc khi ch\u1ea1y)")
+        deferMsg = errMsg
+        deferStyle = vbExclamation
+        deferTitle = ModConstants.Uni("Pre-Flight Check (Ki\u1ec3m tra tr\u01b0\u1edbc khi ch\u1ea1y)")
         GoTo CleanExit
     End If
     If Not ModMarkerLexer.ScanMarkers(doc, markers, errMsg) Then
         ModRibbonCallbacks.g_LastError = errMsg
-        ModUI.MsgBoxW errMsg, vbExclamation, ModConstants.Uni("Marker Error (L\u1ed7i Th\u1ebb)")
+        deferMsg = errMsg
+        deferStyle = vbExclamation
+        deferTitle = ModConstants.Uni("Marker Error (L\u1ed7i Th\u1ebb)")
         GoTo CleanExit
     End If
     If Not ModBackup.HandleTrackChanges(doc, wasTracking) Then
-        ModUI.MsgBoxW ModConstants.Uni("Stopped safely as requested (Track Changes). (\u0110\u00e3 d\u1eebng an to\u00e0n theo y\u00eau c\u1ea7u.)"), vbInformation, ModConstants.Uni("Stopped (\u0110\u00e3 d\u1eebng)")
+        deferMsg = ModConstants.Uni("Stopped safely as requested (Track Changes). (\u0110\u00e3 d\u1eebng an to\u00e0n theo y\u00eau c\u1ea7u.)")
+        deferStyle = vbInformation
+        deferTitle = ModConstants.Uni("Stopped (\u0110\u00e3 d\u1eebng)")
         GoTo CleanExit
     End If
-    Dim prevScreen As Boolean, screenDisabled As Boolean, prevPag As Boolean, hasPag As Boolean, prevView As Long, hasView As Boolean
+    Dim prevScreen As Boolean, screenDisabled As Boolean, prevPag As Boolean, hasPag As Boolean
+    Dim prevView As Long, hasView As Boolean, prevSeek As Long, hasSeek As Boolean
     prevScreen = Application.ScreenUpdating
+    Application.EnableCancelKey = 0
     Application.ScreenUpdating = False
     screenDisabled = True
     On Error Resume Next
@@ -346,10 +388,19 @@ Public Sub RunQuickUpdate(Optional ByVal targetDoc As Document = Nothing)
     If hasPag Then Application.Options.Pagination = False
     Err.Clear
     If doc.Windows.Count > 0 Then
-        prevView = doc.ActiveWindow.View.Type
-        If Err.Number = 0 Then hasView = True
-        If hasView Then doc.ActiveWindow.View.Type = 1
-        Err.Clear
+        If Not doc.ActiveWindow Is Nothing Then
+            prevSeek = doc.ActiveWindow.View.SeekView
+            If Err.Number = 0 Then hasSeek = True
+            Err.Clear
+            If hasSeek And prevSeek <> 0 Then
+                doc.ActiveWindow.View.SeekView = 0
+                Err.Clear
+            End If
+            prevView = doc.ActiveWindow.View.Type
+            If Err.Number = 0 Then hasView = True
+            If hasView Then doc.ActiveWindow.View.Type = 1
+            Err.Clear
+        End If
     End If
     Dim objUndo As Object, undoStarted As Boolean
     Set objUndo = Application.UndoRecord
@@ -357,16 +408,29 @@ Public Sub RunQuickUpdate(Optional ByVal targetDoc As Document = Nothing)
     undoStarted = ModBackup.StartUndoSafe("Quick Update TOC & Lists", objUndo)
     ModProgress.ProgressInit "Quick Update"
     ModProgress.ProgressSetPhase ModConstants.Uni("Preparing Zones (Chu\u1ea9n b\u1ecb v\u00f9ng)"), 5#, 15#
-    Dim slots() As QuickZoneSlot
+    Dim slots() As QuickZoneSlot, prevParaCount As Long, newCsIdx As Long, csDelta As Long
+    prevParaCount = doc.Paragraphs.Count
     If Not ModZoneManager.DiscoverAndPrepareQuickZones(doc, markers, slots) Then
-        ModUI.MsgBoxW ModConstants.Uni("No TOC, LOT, or LOF found to update. (Kh\u00f4ng t\u00ecm th\u1ea5y M\u1ee5c l\u1ee5c hay Danh m\u1ee5c \u0111\u1ec3 c\u1eadp nh\u1eadt.)"), vbExclamation, ModConstants.Uni("Not Found (Kh\u00f4ng t\u00ecm th\u1ea5y)")
+        deferMsg = ModConstants.Uni("No TOC, LOT, or LOF found to update. (Kh\u00f4ng t\u00ecm th\u1ea5y M\u1ee5c l\u1ee5c hay Danh m\u1ee5c \u0111\u1ec3 c\u1eadp nh\u1eadt.)")
+        deferStyle = vbExclamation
+        deferTitle = ModConstants.Uni("Not Found (Kh\u00f4ng t\u00ecm th\u1ea5y)")
         GoTo CleanExit
     End If
-    If Not ModMarkerLexer.ScanMarkers(doc, markers, errMsg) Then Err.Raise vbObjectError + 1000, "RunQuickUpdate", errMsg
+    If doc.Paragraphs.Count <> prevParaCount Then
+        newCsIdx = ModMarkerLexer.FindMarkerParagraph(doc, "=contentstart()")
+        If newCsIdx <= 0 Then Err.Raise vbObjectError + 1000, "RunQuickUpdate", "Missing =contentStart() after zone cleanup."
+        csDelta = newCsIdx - markers.ContentStartParaIndex
+        markers.ContentStartParaIndex = newCsIdx
+        If markers.HasContentEnd Then markers.ContentEndParaIndex = markers.ContentEndParaIndex + csDelta
+    End If
     ModCustomProfile.LoadTagCache doc
     ModProgress.ProgressSetPhase ModConstants.Uni("Scanning Items (Qu\u00e9t ti\u00eau \u0111\u1ec1)"), 20#, 35#
     Dim items() As QuickItem, itemCount As Long, cntHead As Long, cntTbl As Long, cntFig As Long, cntNotes As Long, qSnaps() As ParagraphSnapshot, qCount As Long
     ScanAndFormatQuickItems doc, markers, slots, items, itemCount, cntHead, cntTbl, cntFig, cntNotes, qSnaps, qCount
+    If ModProgress.g_CancelRequested Then
+        wasCancelled = True
+        GoTo CleanExit
+    End If
     ModProgress.ProgressSetPhase ModConstants.Uni("Cross-References (Li\u00ean k\u1ebft ch\u00e9o)"), 55#, 10#
     ModCrossRef.ApplyCrossReferences doc, markers, qSnaps, qCount, g_Config.CrossRefColor
     ModProgress.ProgressSetPhase ModConstants.Uni("Building Lists (D\u1ef1ng danh m\u1ee5c)"), 65#, 15#
@@ -377,7 +441,9 @@ Public Sub RunQuickUpdate(Optional ByVal targetDoc As Document = Nothing)
     ModProgress.ProgressSetPhase ModConstants.Uni("Syncing Pages (\u0110\u1ed3ng b\u1ed9 s\u1ed1 trang)"), 80#, 18#
     Dim pageMode As Long
     If g_Config.IsFooterPage Then pageMode = PageSyncRealFooter Else pageMode = PageSyncPhysicalPage
-    If hasView Then doc.ActiveWindow.View.Type = 3
+    If hasView And doc.Windows.Count > 0 Then
+        If Not doc.ActiveWindow Is Nothing Then doc.ActiveWindow.View.Type = 3
+    End If
     doc.Repaginate
     If Not ModPageNumberSync.SyncAllListPages(doc, pageMode) Then Err.Raise vbObjectError + 1006, "RunQuickUpdate", "SyncAllListPages failed"
     ModMarkerLexer.HighlightMarkers doc
@@ -385,22 +451,44 @@ Public Sub RunQuickUpdate(Optional ByVal targetDoc As Document = Nothing)
     GoTo CleanExit
 MainErr:
     ModRibbonCallbacks.g_LastError = "QuickUpdate Error " & Err.Number & ": " & Err.Description
-    ModUI.MsgBoxW ModConstants.Uni("Quick Update error (L\u1ed7i c\u1eadp nh\u1eadt nhanh) (") & Err.Number & "): " & Err.Description, vbCritical, ModConstants.Uni("Error (L\u1ed7i)")
+    deferMsg = ModConstants.Uni("Quick Update error (L\u1ed7i c\u1eadp nh\u1eadt nhanh) (") & Err.Number & "): " & Err.Description
+    deferStyle = vbCritical
+    deferTitle = ModConstants.Uni("Error (L\u1ed7i)")
 CleanExit:
     On Error Resume Next
+    Application.EnableCancelKey = 1
     ModProgress.ProgressFinish
-    If hasView Then doc.ActiveWindow.View.Type = prevView
+    If hasView And Not doc Is Nothing Then
+        If doc.Windows.Count > 0 Then
+            If Not doc.ActiveWindow Is Nothing Then
+                doc.ActiveWindow.View.Type = prevView
+                If hasSeek And prevSeek <> 0 Then doc.ActiveWindow.View.SeekView = prevSeek
+            End If
+        End If
+    End If
     If hasPag Then Application.Options.Pagination = prevPag
     If undoStarted And Not (objUndo Is Nothing) Then If objUndo.IsRecordingCustomRecord Then objUndo.EndCustomRecord
+    If wasCancelled And undoStarted And Not (doc Is Nothing) Then
+        If Not doc.Saved Then doc.Undo
+    End If
     If Not doc Is Nothing Then ModBackup.RestoreTrackChanges doc, wasTracking
     If screenDisabled Then
         Application.ScreenUpdating = prevScreen
         Application.ScreenRefresh
     End If
-    If isSuccess Then ModUI.ShowQuickUpdateReport slots(1).Found, slots(1).ItemCount, slots(2).Found, slots(2).ItemCount, slots(3).Found, slots(3).ItemCount, cntHead, cntTbl, cntFig, cntNotes
+    If wasCancelled Then
+        If Application.DisplayAlerts <> 0 Then
+            ModUI.MsgBoxW ModConstants.Uni("Operation cancelled safely. (\u0110\u00e3 h\u1ee7y thao t\u00e1c an to\u00e0n.)"), vbInformation, ModConstants.Uni("Cancelled (\u0110\u00e3 h\u1ee7y)")
+        End If
+    ElseIf Len(deferMsg) > 0 Then
+        ModUI.MsgBoxW deferMsg, deferStyle, deferTitle
+    ElseIf isSuccess Then
+        ModUI.ShowQuickUpdateReport slots(1).Found, slots(1).ItemCount, slots(2).Found, slots(2).ItemCount, slots(3).Found, slots(3).ItemCount, cntHead, cntTbl, cntFig, cntNotes
+    End If
     ModCustomProfile.ResetStyleProfileCache
     ModCustomProfile.ResetTagCache
     ModTableIndex.InvalidateAllIndexes
     ModMain.g_IsEngineRunning = False
+    ModRibbonCallbacks.InvalidateRibbonSafe
 End Sub
 ' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

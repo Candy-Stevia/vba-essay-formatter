@@ -49,11 +49,57 @@ Public Sub ResetNoFlyZoneCache()
     g_ZoneDocPtr = 0
 End Sub
 
+Private Function CountCmdBoundary(ByVal txt As String, ByVal cmd As String) As Long
+    Dim cnt As Long
+    Dim p As Long
+    Dim cmdLen As Long
+    Dim txtLen As Long
+    Dim nextCh As String
+
+    cmdLen = Len(cmd)
+    txtLen = Len(txt)
+    If cmdLen = 0 Then
+        Exit Function
+    End If
+    p = InStr(1, txt, cmd)
+    Do While p > 0
+        If p + cmdLen > txtLen Then
+            cnt = cnt + 1
+        Else
+            nextCh = Mid$(txt, p + cmdLen, 1)
+            If Not ((nextCh >= "A" And nextCh <= "Z") Or (nextCh >= "a" And nextCh <= "z")) Then
+                cnt = cnt + 1
+            End If
+        End If
+        p = InStr(p + cmdLen, txt, cmd)
+    Loop
+    CountCmdBoundary = cnt
+End Function
+
+Private Function HasAsciiLetter(ByVal txt As String) As Boolean
+    Dim i As Long
+    Dim ch As String
+
+    For i = 1 To Len(txt)
+        ch = Mid$(txt, i, 1)
+        If (ch >= "A" And ch <= "Z") Or (ch >= "a" And ch <= "z") Then
+            HasAsciiLetter = True
+            Exit Function
+        End If
+    Next i
+End Function
+
+Private Function HasArithOp(ByVal txt As String) As Boolean
+    HasArithOp = (InStr(1, txt, "+") > 0 Or InStr(1, txt, "-") > 0 Or InStr(1, txt, "*") > 0 Or InStr(1, txt, "/") > 0)
+End Function
+
 Public Function HasBalancedBrackets(ByVal txt As String) As Boolean
     Dim i As Long
     Dim braceDepth As Long
     Dim pDepth As Long
     Dim bDepth As Long
+    Dim leftCnt As Long
+    Dim rightCnt As Long
     Dim exactBroken As Boolean
     Dim iBroken As Boolean
     Dim isEsc As Boolean
@@ -98,8 +144,10 @@ Public Function HasBalancedBrackets(ByVal txt As String) As Boolean
         HasBalancedBrackets = True
     ElseIf Not iBroken And (pDepth + bDepth) = 0 And (InStr(1, txt, ",") > 0 Or InStr(1, txt, ";") > 0) Then
         HasBalancedBrackets = True
-    ElseIf InStr(1, txt, "\left") > 0 And InStr(1, txt, "\right") > 0 Then
-        If ModMathInline.CountTokenSubstr(txt, "\left") = ModMathInline.CountTokenSubstr(txt, "\right") Then
+    Else
+        leftCnt = CountCmdBoundary(txt, "\left")
+        rightCnt = CountCmdBoundary(txt, "\right")
+        If leftCnt > 0 And leftCnt = rightCnt Then
             HasBalancedBrackets = True
         End If
     End If
@@ -146,7 +194,7 @@ Public Function ClassifyDollarSpan(ByVal innerText As String, ByVal charBeforeOp
     Else
         c1 = Left$(t, 1)
         cLast = Right$(t, 1)
-        hasMathProof = (InStr(1, t, "\") > 0 Or InStr(1, t, "=") > 0 Or InStr(1, t, "^") > 0 Or InStr(1, t, "_") > 0)
+        hasMathProof = (InStr(1, t, "\") > 0 Or InStr(1, t, "=") > 0 Or InStr(1, t, "^") > 0 Or InStr(1, t, "_") > 0 Or InStr(1, t, "<") > 0 Or InStr(1, t, ">") > 0)
         If (c1 = " " Or c1 = vbTab Or cLast = " " Or cLast = vbTab) And Not hasMathProof Then
             ClassifyDollarSpan = 0
         ElseIf Len(charAfterClose) > 0 And charAfterClose >= "0" And charAfterClose <= "9" Then
@@ -164,7 +212,11 @@ Public Function ClassifyDollarSpan(ByVal innerText As String, ByVal charBeforeOp
             If Not hasNonDigits And Len(Trim$(t)) > 0 Then
                 ClassifyDollarSpan = 2
             ElseIf (c1 >= "0" And c1 <= "9") And InStr(1, t, " ") > 0 And Not hasMathProof Then
-                ClassifyDollarSpan = 2
+                If HasAsciiLetter(t) And HasArithOp(t) Then
+                    ClassifyDollarSpan = 1
+                Else
+                    ClassifyDollarSpan = 2
+                End If
             Else
                 ClassifyDollarSpan = 1
             End If
@@ -175,10 +227,10 @@ End Function
 Public Function StripOuterDelims(ByVal txt As String) As String
     Dim s As String
     s = txt
-    Do While Len(s) > 0 And (Left$(s, 1) = vbCr Or Left$(s, 1) = Chr(7) Or Left$(s, 1) = " " Or Left$(s, 1) = vbTab)
+    Do While Len(s) > 0 And (Left$(s, 1) = vbCr Or Left$(s, 1) = Chr(11) Or Left$(s, 1) = Chr(7) Or Left$(s, 1) = " " Or Left$(s, 1) = vbTab)
         s = Mid$(s, 2)
     Loop
-    Do While Len(s) > 0 And (Right$(s, 1) = vbCr Or Right$(s, 1) = Chr(7) Or Right$(s, 1) = " " Or Right$(s, 1) = vbTab)
+    Do While Len(s) > 0 And (Right$(s, 1) = vbCr Or Right$(s, 1) = Chr(11) Or Right$(s, 1) = Chr(7) Or Right$(s, 1) = " " Or Right$(s, 1) = vbTab)
         s = Left$(s, Len(s) - 1)
     Loop
     If Left$(s, 2) = "$$" And Right$(s, 2) = "$$" And Len(s) >= 4 Then
@@ -204,7 +256,7 @@ Private Function HasApaYearParen(ByVal s As String) As Boolean
     HasApaYearParen = reApaYr.Test(s)
 End Function
 
-Private Function CheckNoFlyHeading(ByVal rawText As String, ByRef isScanningActive As Boolean) As Boolean
+Public Function CheckNoFlyHeading(ByVal rawText As String, ByRef isScanningActive As Boolean) As Boolean
     Dim cleanHead As String, cls As Long
     cleanHead = Trim$(Replace(Replace(Replace(rawText, vbCr, ""), Chr(11), ""), Chr(7), ""))
     If Len(cleanHead) <= 160 And Not HasApaYearParen(cleanHead) Then
@@ -267,15 +319,67 @@ Public Function IsInNoFlyZoneCached(ByVal pRng As Range, ByVal rawText As String
 End Function
 
 Public Function IsInNoFlyZone(ByVal doc As Document, ByVal pRng As Range, ByRef isScanningActive As Boolean) As Boolean
+    On Error GoTo CleanReset
     InitNoFlyZoneCache doc
     IsInNoFlyZone = IsInNoFlyZoneCached(pRng, pRng.Text, isScanningActive)
+CleanReset:
     ResetNoFlyZoneCache
 End Function
 
-Public Function CheckMultilineBlock(ByVal doc As Document, ByVal startPara As Paragraph, ByRef outEndPara As Paragraph, ByRef outRawLatex As String, ByRef outIsAmbiguous As Boolean) As Boolean
+Public Function IsMathEnvironment(ByVal envName As String) As Boolean
+    Dim baseEnv As String
+    baseEnv = Trim$(envName)
+    If Right$(baseEnv, 1) = "*" Then
+        baseEnv = Left$(baseEnv, Len(baseEnv) - 1)
+    End If
+    Select Case baseEnv
+        Case "equation", "align", "gather", "multline", "cases", _
+             "pmatrix", "bmatrix", "Bmatrix", "vmatrix", "Vmatrix", _
+             "matrix", "smallmatrix", "split", "flalign", "alignat", _
+             "aligned", "gathered", "array", "subequations", "eqnarray"
+            IsMathEnvironment = True
+    End Select
+End Function
+
+Private Function CountEnvToken(ByVal txt As String, ByVal cmdPrefix As String, ByVal envName As String) As Long
+    Dim cnt As Long
+    Dim p As Long
+    Dim closePos As Long
+    Dim prefLen As Long
+
+    prefLen = Len(cmdPrefix)
+    p = InStr(1, txt, cmdPrefix)
+    Do While p > 0
+        closePos = InStr(p + prefLen, txt, "}")
+        If closePos = 0 Then
+            Exit Do
+        End If
+        If Trim$(Mid$(txt, p + prefLen, closePos - p - prefLen)) = envName Then
+            cnt = cnt + 1
+        End If
+        p = InStr(closePos + 1, txt, cmdPrefix)
+    Loop
+    CountEnvToken = cnt
+End Function
+
+Private Function EndsWithEnvToken(ByVal txt As String, ByVal envName As String) As Boolean
+    Dim p As Long
+    If Len(txt) < 6 Or Right$(txt, 1) <> "}" Then
+        Exit Function
+    End If
+    p = InStrRev(txt, "\end{")
+    If p <= 0 Then
+        Exit Function
+    End If
+    If InStr(p + 5, txt, "}") <> Len(txt) Then
+        Exit Function
+    End If
+    EndsWithEnvToken = (Trim$(Mid$(txt, p + 5, Len(txt) - p - 5)) = envName)
+End Function
+
+Public Function CheckMultilineBlock(ByVal doc As Document, ByVal startPara As Paragraph, ByRef outEndPara As Paragraph, ByRef outRawLatex As String, ByRef outIsAmbiguous As Boolean, Optional ByRef outSpanSteps As Long = 0) As Boolean
     Dim p1Raw As String
     Dim p1Text As String
-    Dim beginToken As String
     Dim endToken As String
     Dim envName As String
     Dim curText As String
@@ -289,6 +393,7 @@ Public Function CheckMultilineBlock(ByVal doc As Document, ByVal startPara As Pa
     Dim startInTable As Boolean
     Dim tmpScan As Boolean
     Dim closedHere As Boolean
+    outSpanSteps = 0
     p1Raw = startPara.Range.Text
     If InStr(1, p1Raw, Chr(7)) > 0 Then
         Exit Function
@@ -308,10 +413,8 @@ Public Function CheckMultilineBlock(ByVal doc As Document, ByVal startPara As Pa
         braceClose = InStr(8, p1Text, "}")
         If braceClose > 8 Then
             envName = Trim$(Mid$(p1Text, 8, braceClose - 8))
-            If Len(envName) > 0 Then
-                beginToken = "\begin{" & envName & "}"
-                endToken = "\end{" & envName & "}"
-                depth = ModMathInline.CountTokenSubstr(p1Text, beginToken) - ModMathInline.CountTokenSubstr(p1Text, endToken)
+            If Len(envName) > 0 And IsMathEnvironment(envName) Then
+                depth = CountEnvToken(p1Text, "\begin{", envName) - CountEnvToken(p1Text, "\end{", envName)
                 If depth > 0 Then
                     blockKind = 3
                 End If
@@ -322,7 +425,7 @@ Public Function CheckMultilineBlock(ByVal doc As Document, ByVal startPara As Pa
         Exit Function
     End If
     startInTable = startPara.Range.Information(12)
-    combined = Replace(Replace(p1Raw, vbCr, " "), Chr(11), " ")
+    combined = Replace(p1Raw, vbCr, "")
     Set curPara = startPara.Next
     spanStep = 1
     Do While Not curPara Is Nothing And spanStep < MATH_MERGE_MAX_SPAN
@@ -335,11 +438,11 @@ Public Function CheckMultilineBlock(ByVal doc As Document, ByVal startPara As Pa
         If LCase$(curTrim) = "=contentend()" Or IsInNoFlyZoneCached(curPara.Range, curText, tmpScan) Then
             Exit Do
         End If
-        combined = combined & " " & Replace(Replace(Replace(curText, vbCr, " "), Chr(11), " "), Chr(7), "")
+        combined = combined & Chr(11) & Replace(Replace(curText, vbCr, ""), Chr(7), "")
         If blockKind = 3 Then
-            depth = depth + ModMathInline.CountTokenSubstr(curText, beginToken) - ModMathInline.CountTokenSubstr(curText, endToken)
+            depth = depth + CountEnvToken(curText, "\begin{", envName) - CountEnvToken(curText, "\end{", envName)
             If depth <= 0 Then
-                If InStr(1, curText, endToken) > 0 Then
+                If EndsWithEnvToken(curTrim, envName) Then
                     closedHere = True
                 Else
                     Exit Function
@@ -348,12 +451,17 @@ Public Function CheckMultilineBlock(ByVal doc As Document, ByVal startPara As Pa
         ElseIf (Left$(curTrim, 2) = "$$" And Len(curTrim) > 2 And ModMathInline.FindUnescapedToken(curTrim, 3, "$$") > 0) Or (Left$(curTrim, 2) = "\[" And Len(curTrim) > 2 And ModMathInline.FindUnescapedToken(curTrim, 3, "\]") > 0) Then
             Exit Do
         ElseIf ModMathInline.FindUnescapedToken(curText, 1, endToken) > 0 Then
-            closedHere = True
+            If Len(curTrim) >= Len(endToken) And Right$(curTrim, Len(endToken)) = endToken Then
+                closedHere = True
+            Else
+                Exit Function
+            End If
         End If
         If closedHere Then
             Set outEndPara = curPara
             outRawLatex = combined
             outIsAmbiguous = False
+            outSpanSteps = spanStep
             CheckMultilineBlock = True
             Exit Function
         End If

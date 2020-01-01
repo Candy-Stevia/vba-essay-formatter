@@ -63,12 +63,14 @@ Public Function GetClipboardTextUnicode(Optional ByRef outOk As Boolean = False)
     #Else
         Dim hMem As Long, lpStr As Long
     #End If
-    Dim cLen As Long, buf As String
+    Dim cLen As Long, buf As String, isLocked As Boolean
+    isLocked = False
     If IsClipboardFormatAvailable(CF_UNICODETEXT) <> 0 Then
         hMem = GetClipboardData(CF_UNICODETEXT)
         If hMem <> 0 Then
             lpStr = GlobalLock(hMem)
             If lpStr <> 0 Then
+                isLocked = True
                 cLen = lstrlenW(lpStr)
                 If cLen > 0 Then
                     buf = String$(cLen, vbNullChar)
@@ -76,46 +78,66 @@ Public Function GetClipboardTextUnicode(Optional ByRef outOk As Boolean = False)
                     GetClipboardTextUnicode = buf
                 End If
                 GlobalUnlock hMem
+                isLocked = False
                 outOk = True
             End If
         End If
     End If
 CleanClose:
     On Error Resume Next
+    If isLocked And hMem <> 0 Then
+        GlobalUnlock hMem
+        isLocked = False
+    End If
     CloseClipboard
     Err.Clear
 End Function
 
 Public Function SetClipboardTextUnicode(ByVal textVal As String) As Boolean
+    On Error GoTo CleanFail
     #If VBA7 Then
         Dim hMem As LongPtr, lpDst As LongPtr, hRes As LongPtr
     #Else
         Dim hMem As Long, lpDst As Long, hRes As Long
     #End If
     Dim withNull As String, byteLen As Long
+    Dim isLocked As Boolean, isClipOpen As Boolean, ownsHMem As Boolean
+    isLocked = False
+    isClipOpen = False
+    ownsHMem = False
     withNull = textVal & vbNullChar
     byteLen = LenB(withNull)
     hMem = GlobalAlloc(GMEM_MOVEABLE, byteLen)
     If hMem = 0 Then Exit Function
+    ownsHMem = True
     lpDst = GlobalLock(hMem)
-    If lpDst = 0 Then
-        GlobalFree hMem
-        Exit Function
-    End If
+    If lpDst = 0 Then GoTo CleanFail
+    isLocked = True
     CopyMem lpDst, StrPtr(withNull), byteLen
     GlobalUnlock hMem
-    If Not TryOpenClipboardWithRetry() Then
-        GlobalFree hMem
-        Exit Function
-    End If
-    EmptyClipboard
+    isLocked = False
+    If Not TryOpenClipboardWithRetry() Then GoTo CleanFail
+    isClipOpen = True
+    If EmptyClipboard() = 0 Then GoTo CleanFail
     hRes = SetClipboardData(CF_UNICODETEXT, hMem)
-    If hRes = 0 Then
-        GlobalFree hMem
-    Else
-        SetClipboardTextUnicode = True
+    If hRes = 0 Then GoTo CleanFail
+    ownsHMem = False
+    SetClipboardTextUnicode = True
+CleanFail:
+    On Error Resume Next
+    If isLocked And hMem <> 0 Then
+        GlobalUnlock hMem
+        isLocked = False
     End If
-    CloseClipboard
+    If ownsHMem And hMem <> 0 Then
+        GlobalFree hMem
+        ownsHMem = False
+    End If
+    If isClipOpen Then
+        CloseClipboard
+        isClipOpen = False
+    End If
+    Err.Clear
 End Function
 
 Public Function ReadUtf8TextFile(ByVal filePath As String, ByRef outErr As String) As String
@@ -130,7 +152,7 @@ Public Function ReadUtf8TextFile(ByVal filePath As String, ByRef outErr As Strin
     content = stm.ReadText(-1)
     stm.Close
     If Len(content) > 0 Then
-        If AscW(Left$(content, 1)) = &HFEFF Then content = Mid$(content, 2)
+        If (AscW(Left$(content, 1)) And &HFFFF&) = &HFEFF& Then content = Mid$(content, 2)
     End If
     ReadUtf8TextFile = content
     Exit Function

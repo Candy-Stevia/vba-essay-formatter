@@ -30,7 +30,8 @@ End Function
 Private Function FindManualLoaHeadingPara(ByVal doc As Document) As Long
     Dim csIdx As Long, i As Long, p As Paragraph
     csIdx = ModMarkerLexer.FindMarkerParagraph(doc, "=contentstart()")
-    If csIdx <= 1 Then csIdx = doc.Paragraphs.Count + 1
+    If csIdx = 1 Then Exit Function
+    If csIdx <= 0 Then csIdx = doc.Paragraphs.Count + 1
     i = 0
     For Each p In doc.Paragraphs
         i = i + 1
@@ -119,13 +120,18 @@ Private Sub SortAndDedupeAcronyms(ByRef rawItems() As PatchAcronymItem, ByVal ra
     Next i
 End Sub
 
-Private Sub FormatLoaHeadingPara(ByVal rng As Range, ByVal fontName As String, ByVal fontSize As Single)
-    ModCustomProfile.LoadStyleProfile rng.Document
+Public Sub FormatLoaHeadingPara(ByVal rng As Range, ByVal fontName As String, ByVal fontSize As Single, _
+                                Optional ByVal keepCache As Boolean = False)
+    If Not keepCache Then ModCustomProfile.LoadStyleProfile rng.Document
+    ModFormatSingle.EnsureOutlineLevelDetachHeading rng.Document, rng, 1
     rng.HighlightColorIndex = 0
     rng.Font.Name = fontName
     rng.Font.Size = fontSize
     rng.Font.Bold = True
     rng.Font.Italic = False
+    rng.Font.Color = -16777216
+    rng.Font.Underline = 0
+    rng.Font.AllCaps = False
     If Not ModCustomProfile.IsL1UpperDisabled() Then
         rng.Case = 1
     End If
@@ -135,13 +141,12 @@ Private Sub FormatLoaHeadingPara(ByVal rng As Range, ByVal fontName As String, B
     rng.ParagraphFormat.SpaceBefore = 6#
     rng.ParagraphFormat.SpaceAfter = 6#
     rng.ParagraphFormat.KeepWithNext = True
-    ModFormatSingle.SafeSetOutlineLevel rng, 1
     ModCustomProfile.ApplyCustomStyleOverrides rng.Document, rng, ElementTypeLevel1, False
+    If Not keepCache Then ModCustomProfile.ResetStyleProfileCache
 End Sub
 
-Private Sub ApplyCol3NoteWithBoldLabels(ByVal cellRng As Range, ByVal noteText As String, _
-                                        ByVal fontName As String, ByVal fontSize As Single)
-    Dim crRng As Range, p As Paragraph, pTxt As String, colonPos As Long, lbl As String, bLen As Long
+Private Sub ApplyCol3NoteWithBoldLabels(ByVal cellRng As Range, ByVal noteText As String)
+    Dim crRng As Range, p As Paragraph, pRng As Range, pTxt As String, colonPos As Long, lbl As String, bLen As Long
     Dim rawLines() As String, lnIdx As Long, tLine As String, cleaned As String
     rawLines = Split(Replace(Replace(noteText, vbCrLf, vbCr), vbLf, vbCr), vbCr)
     cleaned = ""
@@ -155,16 +160,9 @@ Private Sub ApplyCol3NoteWithBoldLabels(ByVal cellRng As Range, ByVal noteText A
     Set crRng = cellRng.Duplicate
     crRng.End = crRng.End - 1
     crRng.Text = cleaned
-    crRng.Font.Name = fontName
-    crRng.Font.Size = fontSize
-    crRng.Font.Bold = False
-    crRng.ParagraphFormat.Alignment = 0
-    crRng.ParagraphFormat.FirstLineIndent = 0#
-    crRng.ParagraphFormat.LeftIndent = 0#
-    crRng.ParagraphFormat.SpaceBefore = 2#
-    crRng.ParagraphFormat.SpaceAfter = 2#
     For Each p In crRng.Paragraphs
-        pTxt = Trim$(Replace(Replace(p.Range.Text, vbCr, ""), Chr(7), ""))
+        Set pRng = p.Range
+        pTxt = Trim$(Replace(Replace(pRng.Text, vbCr, ""), Chr(7), ""))
         colonPos = InStr(1, pTxt, ":")
         If colonPos > 1 And colonPos <= 16 Then
             lbl = Left$(pTxt, colonPos)
@@ -175,27 +173,20 @@ Private Sub ApplyCol3NoteWithBoldLabels(ByVal cellRng As Range, ByVal noteText A
                StrComp(lbl, "Meaning:", vbTextCompare) = 0 Or _
                StrComp(lbl, "Source:", vbTextCompare) = 0 Then
                 bLen = InStr(1, pTxt, ":")
-                If bLen > 0 Then cellRng.Document.Range(p.Range.Start, p.Range.Start + bLen).Font.Bold = True
+                If bLen > 0 Then cellRng.Document.Range(pRng.Start, pRng.Start + bLen).Font.Bold = True
             End If
         End If
     Next p
 End Sub
 
-Private Sub StyleAcronymCellText(ByVal cellRng As Range, ByVal txt As String, ByVal fontName As String, _
-                                 ByVal fontSize As Single, ByVal isBold As Boolean, ByVal alignVal As Long)
+Private Sub StyleAcronymCellText(ByVal cellRng As Range, ByVal txt As String, _
+                                 ByVal isBold As Boolean, ByVal alignVal As Long)
     Dim r As Range
     Set r = cellRng.Duplicate
     r.End = r.End - 1
     r.Text = txt
-    r.Font.Name = fontName
-    r.Font.Size = fontSize
-    r.Font.Bold = isBold
-    r.Font.Italic = False
-    r.ParagraphFormat.Alignment = alignVal
-    r.ParagraphFormat.FirstLineIndent = 0#
-    r.ParagraphFormat.LeftIndent = 0#
-    r.ParagraphFormat.SpaceBefore = 2#
-    r.ParagraphFormat.SpaceAfter = 2#
+    If isBold Then r.Font.Bold = True
+    If alignVal <> 0 Then r.ParagraphFormat.Alignment = alignVal
 End Sub
 
 Private Sub ConfigureTableGrid(ByVal tbl As Table, ByVal hasCol3 As Boolean, ByVal usableW As Single)
@@ -210,7 +201,7 @@ Private Sub ConfigureTableGrid(ByVal tbl As Table, ByVal hasCol3 As Boolean, ByV
     tbl.BottomPadding = 4#
     tbl.LeftPadding = 6#
     tbl.RightPadding = 6#
-    If usableW < 200# Then usableW = 460#
+    If usableW < 72# Then usableW = 72#
     If hasCol3 Then
         tbl.Columns(1).Width = usableW * 0.16#
         tbl.Columns(2).Width = usableW * 0.32#
@@ -233,7 +224,14 @@ Private Sub DeleteLegacyTableAfterHeader(ByVal doc As Document, ByVal hdrRng As 
     End If
     If CBool(checkRng.Information(12)) And checkRng.Tables.Count > 0 Then
         Dim colCnt As Long
-        colCnt = checkRng.Tables(1).Columns.Count
+        colCnt = 0
+        On Error Resume Next
+        colCnt = checkRng.Tables(1).Rows(1).Cells.Count
+        If Err.Number <> 0 Then
+            Err.Clear
+            colCnt = 0
+        End If
+        On Error GoTo 0
         If colCnt = 2 Or colCnt = 3 Then checkRng.Tables(1).Delete
     End If
 End Sub
@@ -254,6 +252,7 @@ Private Function ResolveLoaInsertRange(ByVal doc As Document, ByVal hdrTitle As 
                                        ByVal fontName As String, ByVal fontSize As Single, _
                                        ByRef outHdrRng As Range) As Range
     Dim mPara As Long, hPara As Long, anchorEnd As Long, hRng As Range, nextRng As Range, reuseHdr As Boolean
+    Dim fallbackPos As Long, hasFallback As Boolean
     mPara = ModMarkerLexer.FindMarkerParagraph(doc, "=listacronyms()")
     If mPara > 0 And doc.Bookmarks.Exists(BM_LOA_HEADER) Then
         reuseHdr = (doc.Bookmarks(BM_LOA_HEADER).Range.Paragraphs(1).Range.Start = doc.Paragraphs(mPara).Range.End)
@@ -262,11 +261,15 @@ Private Function ResolveLoaInsertRange(ByVal doc As Document, ByVal hdrTitle As 
         WipeAcronymZone doc, True
         mPara = ModMarkerLexer.FindMarkerParagraph(doc, "=listacronyms()")
         anchorEnd = doc.Paragraphs(mPara).Range.End
-        If anchorEnd >= doc.Range.End Then doc.Paragraphs(mPara).Range.InsertAfter vbCr
+        If anchorEnd >= doc.Range.End Then
+            doc.Paragraphs(mPara).Range.InsertAfter vbCr
+        ElseIf CBool(doc.Range(anchorEnd, anchorEnd + 1).Information(12)) Then
+            doc.Range(anchorEnd - 1, anchorEnd - 1).InsertBefore vbCr
+        End If
         Set hRng = doc.Range(doc.Paragraphs(mPara).Range.End, doc.Paragraphs(mPara).Range.End)
         hRng.InsertBefore hdrTitle & vbCr
         Set outHdrRng = doc.Paragraphs(mPara + 1).Range
-        FormatLoaHeadingPara outHdrRng, fontName, fontSize
+        FormatLoaHeadingPara outHdrRng, fontName, fontSize, True
         ModBookmark.AddBookmark doc, BM_LOA_HEADER, outHdrRng
         If outHdrRng.End >= doc.Range.End Then outHdrRng.InsertAfter vbCr
         Set nextRng = doc.Range(outHdrRng.End, outHdrRng.End)
@@ -274,11 +277,16 @@ Private Function ResolveLoaInsertRange(ByVal doc As Document, ByVal hdrTitle As 
         Set ResolveLoaInsertRange = nextRng
         Exit Function
     End If
+    hasFallback = False
+    If doc.Bookmarks.Exists(BM_ZONE_LOA) Then
+        fallbackPos = doc.Bookmarks(BM_ZONE_LOA).Range.Start
+        hasFallback = True
+    End If
     WipeAcronymZone doc, False
     If doc.Bookmarks.Exists(BM_LOA_HEADER) Then
         Set outHdrRng = doc.Bookmarks(BM_LOA_HEADER).Range.Paragraphs(1).Range
         RefreshLoaHeaderTitle doc, outHdrRng, hdrTitle
-        FormatLoaHeadingPara outHdrRng, fontName, fontSize
+        FormatLoaHeadingPara outHdrRng, fontName, fontSize, True
         ModBookmark.AddBookmark doc, BM_LOA_HEADER, outHdrRng
         DeleteLegacyTableAfterHeader doc, outHdrRng
         If outHdrRng.End >= doc.Range.End Then outHdrRng.InsertAfter vbCr
@@ -290,9 +298,23 @@ Private Function ResolveLoaInsertRange(ByVal doc As Document, ByVal hdrTitle As 
     hPara = FindManualLoaHeadingPara(doc)
     If hPara > 0 Then
         Set outHdrRng = doc.Paragraphs(hPara).Range
-        FormatLoaHeadingPara outHdrRng, fontName, fontSize
+        FormatLoaHeadingPara outHdrRng, fontName, fontSize, True
         ModBookmark.AddBookmark doc, BM_LOA_HEADER, outHdrRng
         DeleteLegacyTableAfterHeader doc, outHdrRng
+        If outHdrRng.End >= doc.Range.End Then outHdrRng.InsertAfter vbCr
+        Set nextRng = doc.Range(outHdrRng.End, outHdrRng.End)
+        nextRng.Collapse 1
+        Set ResolveLoaInsertRange = nextRng
+        Exit Function
+    End If
+    If hasFallback Then
+        If fallbackPos > doc.Range.End - 1 Then fallbackPos = doc.Range.End - 1
+        If fallbackPos < 0 Then fallbackPos = 0
+        Set hRng = doc.Range(fallbackPos, fallbackPos)
+        hRng.InsertBefore hdrTitle & vbCr
+        Set outHdrRng = doc.Range(fallbackPos, fallbackPos).Paragraphs(1).Range
+        FormatLoaHeadingPara outHdrRng, fontName, fontSize, True
+        ModBookmark.AddBookmark doc, BM_LOA_HEADER, outHdrRng
         If outHdrRng.End >= doc.Range.End Then outHdrRng.InsertAfter vbCr
         Set nextRng = doc.Range(outHdrRng.End, outHdrRng.End)
         nextRng.Collapse 1
@@ -308,49 +330,66 @@ Public Function BuildAcronymTable(ByVal doc As Document, ByRef rawItems() As Pat
     SortAndDedupeAcronyms rawItems, rawCount, items, count, hasCol3
     If count <= 0 Then Exit Function
     ModRibbonCallbacks.EnsureConfigInitialized
+    ModCustomProfile.LoadStyleProfile doc
     Dim fontName As String, bodySize As Single, cellSize As Single, lang As String
-    fontName = g_Config.FontName
+    fontName = ModCustomProfile.ResolveEffectiveFont(ElementTypeNormalParagraph, g_Config.FontName)
     bodySize = g_Config.FontSize
     cellSize = bodySize
     lang = g_Config.ListLang
     Dim hdrTitle As String, hdrRng As Range, insRng As Range
     hdrTitle = ModLocale.GetLoaHeaderTitle(lang)
     Set insRng = ResolveLoaInsertRange(doc, hdrTitle, fontName, bodySize, hdrRng)
-    If insRng Is Nothing Then Exit Function
-    Dim colCnt As Long, tbl As Table, usableW As Single, r As Long
+    If insRng Is Nothing Then GoTo CleanExit
+    Dim colCnt As Long, tbl As Table, tblRng As Range, usableW As Single, r As Long
     colCnt = IIf(hasCol3, 3, 2)
     usableW = ModPageNumberSync.CalculateRightTab(doc, hdrRng)
     Set tbl = doc.Tables.Add(insRng, count + 1, colCnt)
     ConfigureTableGrid tbl, hasCol3, usableW
+    Set tblRng = tbl.Range
+    With tblRng.Font
+        .Name = fontName
+        .Size = cellSize
+        .Bold = False
+        .Italic = False
+    End With
+    With tblRng.ParagraphFormat
+        .Alignment = 0
+        .FirstLineIndent = 0#
+        .LeftIndent = 0#
+        .SpaceBefore = 2#
+        .SpaceAfter = 2#
+        .LineSpacingRule = 0
+    End With
+    On Error Resume Next
+    tbl.Rows.AllowBreakAcrossPages = False
+    Err.Clear
+    On Error GoTo 0
     tbl.Rows(1).HeadingFormat = -1
-    tbl.Rows(1).AllowBreakAcrossPages = False
     If lang = LANG_VI Then
-        StyleAcronymCellText tbl.Cell(1, 1).Range, ModConstants.Uni("Ch\u1eef vi\u1ebft t\u1eaft"), fontName, cellSize, True, 1
-        StyleAcronymCellText tbl.Cell(1, 2).Range, ModConstants.Uni("D\u1ea1ng \u0111\u1ea7y \u0111\u1ee7"), fontName, cellSize, True, 1
-        If hasCol3 Then StyleAcronymCellText tbl.Cell(1, 3).Range, ModConstants.Uni("Gi\u1ea3i th\u00edch & Ngu\u1ed3n"), fontName, cellSize, True, 1
+        StyleAcronymCellText tbl.Cell(1, 1).Range, ModConstants.Uni("Ch\u1eef vi\u1ebft t\u1eaft"), True, 1
+        StyleAcronymCellText tbl.Cell(1, 2).Range, ModConstants.Uni("D\u1ea1ng \u0111\u1ea7y \u0111\u1ee7"), True, 1
+        If hasCol3 Then StyleAcronymCellText tbl.Cell(1, 3).Range, ModConstants.Uni("Gi\u1ea3i th\u00edch & Ngu\u1ed3n"), True, 1
     Else
-        StyleAcronymCellText tbl.Cell(1, 1).Range, "Acronym", fontName, cellSize, True, 1
-        StyleAcronymCellText tbl.Cell(1, 2).Range, "Full Term", fontName, cellSize, True, 1
-        If hasCol3 Then StyleAcronymCellText tbl.Cell(1, 3).Range, "Definition & Source", fontName, cellSize, True, 1
+        StyleAcronymCellText tbl.Cell(1, 1).Range, "Acronym", True, 1
+        StyleAcronymCellText tbl.Cell(1, 2).Range, "Full Term", True, 1
+        If hasCol3 Then StyleAcronymCellText tbl.Cell(1, 3).Range, "Definition & Source", True, 1
     End If
     For r = 1 To count
-        tbl.Rows(r + 1).AllowBreakAcrossPages = False
-        StyleAcronymCellText tbl.Cell(r + 1, 1).Range, items(r).Abbr, fontName, cellSize, True, 1
-        StyleAcronymCellText tbl.Cell(r + 1, 2).Range, items(r).FullForm, fontName, cellSize, False, 0
-        If hasCol3 Then
-            If items(r).HasNote Then
-                ApplyCol3NoteWithBoldLabels tbl.Cell(r + 1, 3).Range, items(r).NoteText, fontName, cellSize
-            Else
-                StyleAcronymCellText tbl.Cell(r + 1, 3).Range, "", fontName, cellSize, False, 0
-            End If
+        StyleAcronymCellText tbl.Cell(r + 1, 1).Range, items(r).Abbr, True, 1
+        StyleAcronymCellText tbl.Cell(r + 1, 2).Range, items(r).FullForm, False, 0
+        If hasCol3 And items(r).HasNote Then
+            ApplyCol3NoteWithBoldLabels tbl.Cell(r + 1, 3).Range, items(r).NoteText
         End If
     Next r
-    tbl.Range.Cells.VerticalAlignment = 1
-    tbl.Range.HighlightColorIndex = 0
-    ModFormatSingle.SafeSetOutlineLevel tbl.Range, 10
-    ModBookmark.AddBookmark doc, BM_ZONE_LOA, tbl.Range
+    Set tblRng = tbl.Range
+    tblRng.Cells.VerticalAlignment = 1
+    tblRng.HighlightColorIndex = 0
+    ModFormatSingle.SafeSetOutlineLevel tblRng, 10
+    ModBookmark.AddBookmark doc, BM_ZONE_LOA, tblRng
     outWrittenCount = count
     BuildAcronymTable = True
+CleanExit:
+    ModCustomProfile.ResetStyleProfileCache
 End Function
 
 Public Function ApplyAcronymsFromPatchForTest(ByVal doc As Document, ByVal rawPatch As String) As String

@@ -181,6 +181,28 @@ Public Function ValidateDomGuards(ByVal doc As Document, ByRef p As ScannedPara,
         outReason = "Protected OMath span"
         Exit Function
     End If
+    Dim mTxt As String
+    mTxt = mRng.Text
+    If mRng.Footnotes.Count > 0 Or mRng.Comments.Count > 0 Or _
+       InStr(1, mTxt, Chr(2), vbBinaryCompare) > 0 Or InStr(1, mTxt, Chr(5), vbBinaryCompare) > 0 Then
+        outReason = "Contains Footnote/Comment"
+        Exit Function
+    End If
+    If doc.ContentControls.Count > 0 Then
+        Dim inSdt As Boolean
+        inSdt = False
+        On Error Resume Next
+        If mRng.ContentControls.Count > 0 Then inSdt = True
+        If Not inSdt Then
+            If Not (mRng.ParentContentControl Is Nothing) Then inSdt = True
+        End If
+        Err.Clear
+        On Error GoTo 0
+        If inSdt Then
+            outReason = "Inside ContentControl/SDT"
+            Exit Function
+        End If
+    End If
     If p.IsInTable Then
         If mRng.Cells.Count <> 1 Or ePos > p.RangeEnd - 1 Then
             outReason = "Crosses table cell boundary"

@@ -59,13 +59,24 @@ Private Sub EmitTextElem(ByVal rawText As String)
     BufAppend "</m:t>"
 End Sub
 
+Private Sub EmitCharRun(ByVal runText As String, ByVal isPlain As Boolean)
+    If isPlain Then
+        BufAppend "<m:r><m:rPr><m:sty m:val=""p"" /></m:rPr>"
+    Else
+        BufAppend "<m:r>"
+    End If
+    EmitTextElem runText
+    BufAppend "</m:r>"
+End Sub
+
 Private Sub EmitNode(ByVal idx As Long)
     Dim nType As Integer
-    Dim c1 As Long, c2 As Long, c3 As Long, maxCols As Long, cIdx As Long
-    Dim fType As String, subHide As String, supHide As String, colAlign As String
+    Dim c1 As Long, c2 As Long, c3 As Long, maxCols As Long, cIdx As Long, childIdx As Long
+    Dim fType As String, subHide As String, supHide As String, colAlign As String, runText As String
     Dim alignArr() As String
     Dim vItem As Variant, cellIdx As Variant
     Dim rowObj As Collection
+    Dim hasRun As Boolean, runPlain As Boolean
 
     If idx <= 0 Or idx > ModTexAst.mNodeCount Then
         Exit Sub
@@ -84,13 +95,7 @@ Private Sub EmitNode(ByVal idx As Long)
 
     Select Case nType
         Case AST_CHAR
-            If ModTexAst.mNodes(idx).Bool1 Then
-                BufAppend "<m:r><m:rPr><m:sty m:val=""p"" /></m:rPr>"
-            Else
-                BufAppend "<m:r>"
-            End If
-            EmitTextElem ModTexAst.mNodes(idx).Str1
-            BufAppend "</m:r>"
+            EmitCharRun ModTexAst.mNodes(idx).Str1, ModTexAst.mNodes(idx).Bool1
 
         Case AST_TEXT
             If ModTexAst.mNodes(idx).Str2 = "double-struck" Then
@@ -215,8 +220,8 @@ Private Sub EmitNode(ByVal idx As Long)
             End If
             BufAppend "<m:m><m:mPr><m:baseJc m:val=""center"" /><m:plcHide m:val=""on"" /><m:mcs>"
             For cIdx = 0 To maxCols - 1
-                If cIdx <= UBound(alignArr) Then
-                    colAlign = alignArr(cIdx)
+                If UBound(alignArr) >= 0 Then
+                    colAlign = alignArr(cIdx Mod (UBound(alignArr) + 1))
                 Else
                     colAlign = "center"
                 End If
@@ -244,19 +249,11 @@ Private Sub EmitNode(ByVal idx As Long)
             BufAppend "</m:e></m:acc>"
 
         Case AST_LIMLOW
-            If ModTexAst.mNodes(idx).Str1 = "underbrace" Then
-                BufAppend "<m:limLow><m:e><m:limLow><m:e>"
-                EmitNode c1
-                BufAppend "</m:e><m:lim><m:r><m:rPr><m:sty m:val=""p"" /></m:rPr><m:t>" & ChrW(&H23DF) & "</m:t></m:r></m:lim></m:limLow></m:e><m:lim>"
-                EmitNode c2
-                BufAppend "</m:lim></m:limLow>"
-            Else
-                BufAppend "<m:limLow><m:e>"
-                EmitNode c1
-                BufAppend "</m:e><m:lim>"
-                EmitNode c2
-                BufAppend "</m:lim></m:limLow>"
-            End If
+            BufAppend "<m:limLow><m:e>"
+            EmitNode c1
+            BufAppend "</m:e><m:lim>"
+            EmitNode c2
+            BufAppend "</m:lim></m:limLow>"
 
         Case AST_LIMUPP
             BufAppend "<m:limUpp><m:e>"
@@ -288,9 +285,36 @@ Private Sub EmitNode(ByVal idx As Long)
 
         Case AST_LIST
             If Not ModTexAst.mNodes(idx).ChildList Is Nothing Then
+                hasRun = False
+                runText = ""
+                runPlain = False
                 For Each vItem In ModTexAst.mNodes(idx).ChildList
-                    EmitNode CLng(vItem)
+                    childIdx = CLng(vItem)
+                    If childIdx > 0 And childIdx <= ModTexAst.mNodeCount Then
+                        If ModTexAst.mNodes(childIdx).NodeType = AST_CHAR Then
+                            If hasRun And ModTexAst.mNodes(childIdx).Bool1 = runPlain Then
+                                runText = runText & ModTexAst.mNodes(childIdx).Str1
+                            Else
+                                If hasRun Then
+                                    EmitCharRun runText, runPlain
+                                End If
+                                hasRun = True
+                                runPlain = ModTexAst.mNodes(childIdx).Bool1
+                                runText = ModTexAst.mNodes(childIdx).Str1
+                            End If
+                        Else
+                            If hasRun Then
+                                EmitCharRun runText, runPlain
+                                hasRun = False
+                                runText = ""
+                            End If
+                            EmitNode childIdx
+                        End If
+                    End If
                 Next vItem
+                If hasRun Then
+                    EmitCharRun runText, runPlain
+                End If
             End If
     End Select
 

@@ -111,6 +111,7 @@ End Function
 
 Private Function SkipLineBreakOptArg(ByVal text As String, ByVal pos As Long, ByVal textLen As Long) As Long
     Dim p As Long
+    Dim posAfterStar As Long
     Dim closePos As Long
     Dim inner As String
 
@@ -120,6 +121,7 @@ Private Function SkipLineBreakOptArg(ByVal text As String, ByVal pos As Long, By
             p = p + 1
         End If
     End If
+    posAfterStar = p
     Do While p <= textLen
         If IsSpaceChar(Mid$(text, p, 1)) Then
             p = p + 1
@@ -128,23 +130,23 @@ Private Function SkipLineBreakOptArg(ByVal text As String, ByVal pos As Long, By
         End If
     Loop
     If p > textLen Then
-        SkipLineBreakOptArg = pos
+        SkipLineBreakOptArg = posAfterStar
         Exit Function
     End If
     If Mid$(text, p, 1) <> "[" Then
-        SkipLineBreakOptArg = pos
+        SkipLineBreakOptArg = posAfterStar
         Exit Function
     End If
     closePos = InStr(p + 1, text, "]")
     If closePos = 0 Or closePos - p > 24 Then
-        SkipLineBreakOptArg = pos
+        SkipLineBreakOptArg = posAfterStar
         Exit Function
     End If
     inner = Trim$(Mid$(text, p + 1, closePos - p - 1))
     If IsTexDimension(inner) Then
         SkipLineBreakOptArg = closePos + 1
     Else
-        SkipLineBreakOptArg = pos
+        SkipLineBreakOptArg = posAfterStar
     End If
 End Function
 
@@ -152,9 +154,12 @@ Public Sub TokenizeLatex(ByVal text As String)
     Dim textLen As Long
     Dim pos As Long
     Dim startPos As Long
+    Dim cmdStart As Long
     Dim ch As String
     Dim nextCh As String
     Dim cmdLetters As String
+    Dim code As Long
+    Dim nextCode As Long
 
     textLen = Len(text)
     pos = 1
@@ -209,16 +214,17 @@ Public Sub TokenizeLatex(ByVal text As String)
                     pos = pos + 1
                     ModTexAst.AddToken TOK_CMD, "\" & nextCh, startPos
                 ElseIf IsAlpha(nextCh) Then
-                    cmdLetters = ""
+                    cmdStart = pos
+                    pos = pos + 1
                     Do While pos <= textLen
                         If IsAlpha(Mid$(text, pos, 1)) Then
-                            cmdLetters = cmdLetters & Mid$(text, pos, 1)
                             pos = pos + 1
                         Else
                             Exit Do
                         End If
                     Loop
-                    If cmdLetters = "operatorname" And pos <= textLen Then
+                    cmdLetters = Mid$(text, cmdStart, pos - cmdStart)
+                    If (cmdLetters = "operatorname" Or cmdLetters = "tag") And pos <= textLen Then
                         If Mid$(text, pos, 1) = "*" Then
                             cmdLetters = cmdLetters & "*"
                             pos = pos + 1
@@ -226,8 +232,20 @@ Public Sub TokenizeLatex(ByVal text As String)
                     End If
                     ModTexAst.AddToken TOK_CMD, "\" & cmdLetters, startPos
                 Else
-                    ModTexAst.AddToken TOK_CHAR, nextCh, startPos
-                    pos = pos + 1
+                    code = AscW(nextCh) And &HFFFF&
+                    If code >= &HD800& And code <= &HDBFF& And pos < textLen Then
+                        nextCode = AscW(Mid$(text, pos + 1, 1)) And &HFFFF&
+                        If nextCode >= &HDC00& And nextCode <= &HDFFF& Then
+                            ModTexAst.AddToken TOK_CHAR, Mid$(text, pos, 2), startPos
+                            pos = pos + 2
+                        Else
+                            ModTexAst.AddToken TOK_CHAR, nextCh, startPos
+                            pos = pos + 1
+                        End If
+                    Else
+                        ModTexAst.AddToken TOK_CHAR, nextCh, startPos
+                        pos = pos + 1
+                    End If
                 End If
             End If
         ElseIf ch = "{" Then
@@ -257,9 +275,24 @@ Public Sub TokenizeLatex(ByVal text As String)
         ElseIf ch = "&" Then
             ModTexAst.AddToken TOK_AMP, "&", pos
             pos = pos + 1
-        Else
-            ModTexAst.AddToken TOK_CHAR, ch, pos
+        ElseIf ch = "$" Then
+            ModTexAst.SetAmbiguous True
             pos = pos + 1
+        Else
+            code = AscW(ch) And &HFFFF&
+            If code >= &HD800& And code <= &HDBFF& And pos < textLen Then
+                nextCode = AscW(Mid$(text, pos + 1, 1)) And &HFFFF&
+                If nextCode >= &HDC00& And nextCode <= &HDFFF& Then
+                    ModTexAst.AddToken TOK_CHAR, Mid$(text, pos, 2), pos
+                    pos = pos + 2
+                Else
+                    ModTexAst.AddToken TOK_CHAR, ch, pos
+                    pos = pos + 1
+                End If
+            Else
+                ModTexAst.AddToken TOK_CHAR, ch, pos
+                pos = pos + 1
+            End If
         End If
     Loop
 
