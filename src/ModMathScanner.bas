@@ -13,12 +13,12 @@ Public Const BM_KIND_NONE As Long = 0
 Public Const BM_KIND_OMATH As Long = 1
 Public Const BM_KIND_SRC As Long = 2
 Public Const BM_KIND_PINK As Long = 3
-Private g_HasZone(1 To 3) As Boolean
-Private g_ZoneBms(1 To 3) As Bookmark
+Private g_HasZone(1 To 4) As Boolean
+Private g_ZoneBms(1 To 4) As Bookmark
 Private g_ZoneDocPtr As LongPtr
 
 Public Sub InitNoFlyZoneCache(ByVal doc As Document)
-    Dim names(1 To 3) As String
+    Dim names(1 To 4) As String
     Dim i As Long
     ResetNoFlyZoneCache
     If doc Is Nothing Then
@@ -28,8 +28,9 @@ Public Sub InitNoFlyZoneCache(ByVal doc As Document)
     names(1) = "bm_zone_toc"
     names(2) = "bm_zone_lot"
     names(3) = "bm_zone_lof"
+    names(4) = "bm_zone_loa"
     On Error Resume Next
-    For i = 1 To 3
+    For i = 1 To 4
         If doc.Bookmarks.Exists(names(i)) Then
             Set g_ZoneBms(i) = doc.Bookmarks(names(i))
             g_HasZone(i) = (Err.Number = 0 And Not g_ZoneBms(i) Is Nothing)
@@ -41,7 +42,7 @@ End Sub
 
 Public Sub ResetNoFlyZoneCache()
     Dim i As Long
-    For i = 1 To 3
+    For i = 1 To 4
         g_HasZone(i) = False
         Set g_ZoneBms(i) = Nothing
     Next i
@@ -104,41 +105,13 @@ Public Function HasBalancedBrackets(ByVal txt As String) As Boolean
     End If
 End Function
 
-Private Function IsSingleCurrencyUnit(ByVal rawUnit As String, ByVal lowUnit As String, ByVal numPart As String, ByVal currUnits As String) As Boolean
-    If InStr(1, currUnits, "|" & lowUnit & "|") > 0 Then
-        IsSingleCurrencyUnit = True
-    ElseIf rawUnit = "M" Or rawUnit = "B" Or rawUnit = "K" Then
-        IsSingleCurrencyUnit = True
-    ElseIf lowUnit = "k" Then
-        If Val(Replace(Replace(numPart, ",", ""), " ", "")) >= 10# Then
-            IsSingleCurrencyUnit = True
-        End If
-    End If
-End Function
-
 Public Function IsCurrencyText(ByVal txt As String) As Boolean
-    Dim rawT As String
-    Dim t As String
-    Dim c As String
-    Dim i As Long
-    Dim numPart As String
-    Dim rawUnitPart As String
-    Dim unitPart As String
-    Dim slashPos As Long
-    Dim leftTok As String
-    Dim rightTok As String
-    Dim currUnits As String
-    Dim periodUnits As String
-
-    currUnits = "|usd|vnd|eur|gbp|jpy|cny|chf|tr|bn|dong|nghin|ngan|trieu|ty|dollar|dollars|cent|cents|thousand|million|billion|" & _
-                ModConstants.Uni("tri\u1ec7u|t\u1ef7|ngh\u00ecn|ng\u00e0n|\u0111\u1ed3ng|\u0111|")
-    periodUnits = "|month|mo|year|yr|day|ngay|unit|thang|nam|nguoi|don vi|" & ModConstants.Uni("th\u00e1ng|n\u0103m|ng\u00e0y|ng\u01b0\u1eddi|\u0111\u01a1n v\u1ecb|")
+    Dim rawT As String, c As String, i As Long, numPart As String, rawUnitPart As String
     rawT = Trim$(txt)
-    t = LCase$(rawT)
-    If Len(t) = 0 Or InStr(1, t, "\") > 0 Or InStr(1, t, "=") > 0 Or InStr(1, t, "{") > 0 Or InStr(1, t, "}") > 0 Or InStr(1, t, "^") > 0 Or InStr(1, t, "_") > 0 Then
+    If Len(rawT) = 0 Or InStr(1, rawT, "\") > 0 Or InStr(1, rawT, "=") > 0 Or InStr(1, rawT, "{") > 0 Or InStr(1, rawT, "}") > 0 Or InStr(1, rawT, "^") > 0 Or InStr(1, rawT, "_") > 0 Then
         Exit Function
     End If
-    c = Left$(t, 1)
+    c = Left$(rawT, 1)
     If c < "0" Or c > "9" Then
         Exit Function
     End If
@@ -150,24 +123,10 @@ Public Function IsCurrencyText(ByVal txt As String) As Boolean
             Exit For
         End If
     Next i
-    unitPart = LCase$(rawUnitPart)
-    If Len(unitPart) = 0 Then
+    If Len(rawUnitPart) = 0 Then
         Exit Function
     End If
-    slashPos = InStr(1, unitPart, "/")
-    If slashPos > 0 Then
-        leftTok = Trim$(Left$(unitPart, slashPos - 1))
-        rightTok = Trim$(Mid$(unitPart, slashPos + 1))
-        If Len(rightTok) > 0 And InStr(1, periodUnits, "|" & rightTok & "|") > 0 Then
-            If Len(leftTok) = 0 Then
-                IsCurrencyText = True
-            Else
-                IsCurrencyText = IsSingleCurrencyUnit(Trim$(Left$(rawUnitPart, slashPos - 1)), leftTok, numPart, currUnits)
-            End If
-        End If
-    Else
-        IsCurrencyText = IsSingleCurrencyUnit(rawUnitPart, unitPart, numPart, currUnits)
-    End If
+    IsCurrencyText = ModLocale.IsCurrencyUnitMatch(rawUnitPart, numPart)
 End Function
 
 Public Function ClassifyDollarSpan(ByVal innerText As String, ByVal charBeforeOpen As String, ByVal charAfterClose As String) As Long
@@ -231,7 +190,7 @@ End Function
 Private Function CheckNoFlyHeading(ByVal rawText As String, ByRef isScanningActive As Boolean) As Boolean
     Dim cleanHead As String, cls As Long
     cleanHead = Trim$(Replace(Replace(Replace(rawText, vbCr, ""), Chr(11), ""), Chr(7), ""))
-    If Len(cleanHead) <= 45 Then
+    If Len(cleanHead) <= 160 And InStr(1, cleanHead, "(") = 0 Then
         cls = ModLocale.ClassifyRefZoneHeading(cleanHead, True)
         If cls = 1 Then
             isScanningActive = False
@@ -268,7 +227,7 @@ Public Function IsInNoFlyZoneCached(ByVal pRng As Range, ByVal rawText As String
     rStart = pRng.Start
     rEnd = pRng.End
     If Err.Number = 0 Then
-        For i = 1 To 3
+        For i = 1 To 4
             If g_HasZone(i) And Not g_ZoneBms(i) Is Nothing Then
                 bmStart = g_ZoneBms(i).Start
                 bmEnd = g_ZoneBms(i).End

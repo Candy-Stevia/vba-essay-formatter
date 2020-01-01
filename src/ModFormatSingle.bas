@@ -14,13 +14,30 @@ Public Sub SafeSetOutlineLevel(ByVal rng As Range, ByVal lvl As Long)
     Err.Clear
 End Sub
 
-Private Sub RestoreMathFont(ByVal rng As Range, ByVal hasOMaths As Boolean)
-    If Not hasOMaths Then Exit Sub
-    If rng.OMaths.Count = 0 Then Exit Sub
-    Dim mIdx As Long
-    For mIdx = 1 To rng.OMaths.Count
-        rng.OMaths(mIdx).Range.Font.Name = "Cambria Math"
+Public Sub ApplyFontNameSkippingMath(ByVal doc As Document, ByVal rng As Range, _
+                                     ByVal fontName As String, ByVal hasOMaths As Boolean)
+    If Not hasOMaths Then
+        rng.Font.Name = fontName
+        Exit Sub
+    End If
+    Dim mCnt As Long
+    mCnt = rng.OMaths.Count
+    If mCnt = 0 Then
+        rng.Font.Name = fontName
+        Exit Sub
+    End If
+    Dim segPos As Long, mIdx As Long, omRng As Range
+    segPos = rng.Start
+    For mIdx = 1 To mCnt
+        Set omRng = rng.OMaths(mIdx).Range
+        If omRng.Start > segPos Then
+            doc.Range(segPos, omRng.Start).Font.Name = fontName
+        End If
+        If omRng.End > segPos Then segPos = omRng.End
     Next mIdx
+    If segPos < rng.End Then
+        doc.Range(segPos, rng.End).Font.Name = fontName
+    End If
 End Sub
 
 Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
@@ -31,7 +48,7 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
     Select Case tType
         Case ElementTypeLevel1
             ModFormatCore.ClearYellowAndRedBleed rng
-            rng.Font.Name = fontName
+            ApplyFontNameSkippingMath doc, rng, fontName, hasOMaths
             rng.Font.Size = fontSize
             rng.Font.Bold = True
             rng.Font.Italic = False
@@ -44,7 +61,6 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
                         If omRng.Start > segPos Then
                             doc.Range(segPos, omRng.Start).Case = 1
                         End If
-                        omRng.Font.Name = "Cambria Math"
                         If omRng.End > segPos Then segPos = omRng.End
                     Next mIdx
                     If segPos < rng.End Then
@@ -59,6 +75,7 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             rng.ParagraphFormat.Alignment = 1
             rng.ParagraphFormat.FirstLineIndent = 0#
             rng.ParagraphFormat.LeftIndent = 0#
+            rng.ParagraphFormat.KeepWithNext = True
             SafeSetOutlineLevel rng, 1
             If Len(bmName) > 0 Then
                 ModBookmark.AddBookmark doc, bmName, rng
@@ -66,15 +83,15 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
         Case ElementTypeLevel2
             ModFormatHeading.CapPrefixAndContent doc, rng, ""
             ModFormatCore.ClearYellowAndRedBleed rng
-            rng.Font.Name = fontName
+            ApplyFontNameSkippingMath doc, rng, fontName, hasOMaths
             rng.Font.Size = fontSize
             rng.Font.Bold = True
             rng.Bold = True
             rng.Font.Italic = False
-            RestoreMathFont rng, hasOMaths
             rng.ParagraphFormat.Alignment = 0
             rng.ParagraphFormat.FirstLineIndent = indentPts
             rng.ParagraphFormat.LeftIndent = ModConstants.CmToPoints(0.5)
+            rng.ParagraphFormat.KeepWithNext = True
             SafeSetOutlineLevel rng, 2
             If Len(bmName) > 0 Then
                 ModBookmark.AddBookmark doc, bmName, rng
@@ -82,15 +99,15 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
         Case ElementTypeLevel3
             ModFormatHeading.CapPrefixAndContent doc, rng, ""
             ModFormatCore.ClearYellowAndRedBleed rng
-            rng.Font.Name = fontName
+            ApplyFontNameSkippingMath doc, rng, fontName, hasOMaths
             rng.Font.Size = fontSize
             rng.Font.Bold = True
             rng.Bold = True
             rng.Font.Italic = True
-            RestoreMathFont rng, hasOMaths
             rng.ParagraphFormat.Alignment = 0
             rng.ParagraphFormat.FirstLineIndent = indentPts
             rng.ParagraphFormat.LeftIndent = ModConstants.CmToPoints(0.75)
+            rng.ParagraphFormat.KeepWithNext = True
             SafeSetOutlineLevel rng, 3
             If Len(bmName) > 0 Then
                 ModBookmark.AddBookmark doc, bmName, rng
@@ -98,14 +115,14 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
         Case ElementTypeLevel4
             ModFormatHeading.CapPrefixAndContent doc, rng, ""
             ModFormatCore.ClearYellowAndRedBleed rng
-            rng.Font.Name = fontName
+            ApplyFontNameSkippingMath doc, rng, fontName, hasOMaths
             rng.Font.Size = fontSize
             rng.Font.Bold = False
             rng.Font.Italic = True
-            RestoreMathFont rng, hasOMaths
             rng.ParagraphFormat.Alignment = 0
             rng.ParagraphFormat.FirstLineIndent = indentPts
             rng.ParagraphFormat.LeftIndent = ModConstants.CmToPoints(1#)
+            rng.ParagraphFormat.KeepWithNext = True
             If ModRibbonCallbacks.g_Config.TocDepth = 3 Then
                 SafeSetOutlineLevel rng, 10
             Else
@@ -117,15 +134,15 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
         Case ElementTypeTableTitle
             ModFormatHeading.CapPrefixAndContent doc, rng, ". "
             ModFormatCore.ClearYellowAndRedBleed rng
-            rng.Font.Name = fontName
+            ApplyFontNameSkippingMath doc, rng, fontName, hasOMaths
             rng.Font.Size = fontSize
             rng.Font.Bold = True
             rng.Bold = True
             rng.Font.Italic = False
-            RestoreMathFont rng, hasOMaths
             rng.ParagraphFormat.Alignment = 0
             rng.ParagraphFormat.FirstLineIndent = indentPts
             rng.ParagraphFormat.LeftIndent = 0#
+            rng.ParagraphFormat.KeepWithNext = True
             SafeSetOutlineLevel rng, 10
             If Len(bmName) > 0 Then
                 ModBookmark.AddBookmark doc, bmName, rng
@@ -137,15 +154,15 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
                 ModFormatHeading.CapPrefixAndContent doc, rng, ". "
             End If
             ModFormatCore.ClearYellowAndRedBleed rng
-            rng.Font.Name = fontName
+            ApplyFontNameSkippingMath doc, rng, fontName, hasOMaths
             rng.Font.Size = fontSize
             rng.Font.Bold = True
             rng.Bold = True
             rng.Font.Italic = False
-            RestoreMathFont rng, hasOMaths
             rng.ParagraphFormat.Alignment = 1
             rng.ParagraphFormat.FirstLineIndent = 0#
             rng.ParagraphFormat.LeftIndent = 0#
+            rng.ParagraphFormat.KeepWithNext = False
             SafeSetOutlineLevel rng, 10
             If Len(bmName) > 0 Then
                 ModBookmark.AddBookmark doc, bmName, rng
@@ -158,14 +175,12 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             rng.ParagraphFormat.KeepWithNext = True
             SafeSetOutlineLevel rng, 10
         Case ElementTypeSourceNote
-            ModFormatHeading.FormatSourceNoteRange doc, rng, fontName, fontSize
-            RestoreMathFont rng, hasOMaths
+            ModFormatHeading.FormatSourceNoteRange doc, rng, fontName, fontSize, hasOMaths
             SafeSetOutlineLevel rng, 10
         Case ElementTypeTableCell
             ModFormatCore.ClearYellowAndRedBleed rng
-            rng.Font.Name = fontName
+            ApplyFontNameSkippingMath doc, rng, fontName, hasOMaths
             rng.Font.Size = fontSize
-            RestoreMathFont rng, hasOMaths
             If rng.Cells.Count > 0 Then
                 rng.Cells(1).VerticalAlignment = 1
             End If
@@ -175,12 +190,12 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             SafeSetOutlineLevel rng, 10
         Case ElementTypeNormalParagraph
             ModFormatCore.ClearYellowAndRedBleed rng
-            rng.Font.Name = fontName
+            ApplyFontNameSkippingMath doc, rng, fontName, hasOMaths
             rng.Font.Size = fontSize
-            RestoreMathFont rng, hasOMaths
             rng.ParagraphFormat.Alignment = 3
             rng.ParagraphFormat.FirstLineIndent = indentPts
             rng.ParagraphFormat.LeftIndent = 0#
+            rng.ParagraphFormat.KeepWithNext = False
             SafeSetOutlineLevel rng, 10
             ModFormatBatch.g_SingleParaCount = ModFormatBatch.g_SingleParaCount + 1
         Case ElementTypeIgnoredManualList

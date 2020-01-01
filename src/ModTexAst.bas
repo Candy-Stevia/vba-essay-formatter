@@ -74,7 +74,6 @@ End Sub
 
 Public Sub AddToken(ByVal tType As Integer, ByVal valStr As String, ByVal posVal As Long)
     Dim newCap As Long
-
     If mTokenCount >= MAX_TOKENS Then
         mIsAmbiguous = True
         If tType = TOK_EOF Then
@@ -87,9 +86,7 @@ Public Sub AddToken(ByVal tType As Integer, ByVal valStr As String, ByVal posVal
     mTokenCount = mTokenCount + 1
     If mTokenCount > UBound(mTokens) Then
         newCap = UBound(mTokens) * 2
-        If newCap > MAX_TOKENS Then
-            newCap = MAX_TOKENS
-        End If
+        If newCap > MAX_TOKENS Then newCap = MAX_TOKENS
         ReDim Preserve mTokens(1 To newCap)
     End If
     mTokens(mTokenCount).TokType = tType
@@ -103,7 +100,6 @@ End Sub
 
 Public Function AllocNode(ByVal nType As Integer) As Long
     Dim newCap As Long
-
     If mNodeCount >= MAX_NODES Then
         mIsAmbiguous = True
         Set mNodes(0).ChildList = Nothing
@@ -113,9 +109,7 @@ Public Function AllocNode(ByVal nType As Integer) As Long
     mNodeCount = mNodeCount + 1
     If mNodeCount > UBound(mNodes) Then
         newCap = UBound(mNodes) * 2
-        If newCap > MAX_NODES Then
-            newCap = MAX_NODES
-        End If
+        If newCap > MAX_NODES Then newCap = MAX_NODES
         ReDim Preserve mNodes(0 To newCap)
     End If
     mNodes(mNodeCount).NodeType = nType
@@ -130,15 +124,11 @@ Public Function AllocNode(ByVal nType As Integer) As Long
 End Function
 
 Private Sub SkipSpaces()
-    If Not mInTextMode Then
-        Do While mPos <= mTokenCount
-            If mTokens(mPos).TokType = TOK_SPACE Then
-                mPos = mPos + 1
-            Else
-                Exit Do
-            End If
-        Loop
-    End If
+    If mInTextMode Then Exit Sub
+    Do While mPos <= mTokenCount
+        If mTokens(mPos).TokType <> TOK_SPACE Then Exit Do
+        mPos = mPos + 1
+    Loop
 End Sub
 
 Public Function CurTok() As TexToken
@@ -338,30 +328,50 @@ Public Function ConsumeLiteralTextArg() As String
         End If
     Loop
     mInTextMode = False
-    If depth > 0 Then
-        mIsAmbiguous = True
-    End If
+    If depth > 0 Then mIsAmbiguous = True
     ConsumeLiteralTextArg = res
 End Function
 
-Public Function HandleSubSup(ByVal baseNode As Long) As Long
-    Dim subNode As Long, supNode As Long, resNode As Long
+Public Sub SkipLimitMods()
+    Do While CurTok().TokType = TOK_CMD
+        If CurTok().Val <> "\limits" And CurTok().Val <> "\nolimits" Then Exit Do
+        AdvanceTok
+    Loop
+End Sub
 
-    subNode = 0
-    supNode = 0
-    Do While CurTok().TokType = TOK_SUB Or CurTok().TokType = TOK_SUP
+Public Function HandleSubSup(ByVal baseNode As Long) As Long
+    Dim subNode As Long, supNode As Long, resNode As Long, extraSup As Long, listNd As Long, isPrimeSup As Boolean, primes As String
+    Dim supItems As Collection
+    Do While CurTok().TokType = TOK_SUB Or CurTok().TokType = TOK_SUP Or (CurTok().TokType = TOK_CHAR And CurTok().Val = "'")
         If CurTok().TokType = TOK_SUB Then
-            If subNode <> 0 Then
-                Exit Do
-            End If
+            If subNode <> 0 Then Exit Do
             AdvanceTok
             subNode = ModTexParser.ParseArgument()
         ElseIf CurTok().TokType = TOK_SUP Then
-            If supNode <> 0 Then
-                Exit Do
-            End If
+            If supNode <> 0 And Not isPrimeSup Then Exit Do
             AdvanceTok
-            supNode = ModTexParser.ParseArgument()
+            extraSup = ModTexParser.ParseArgument()
+            If isPrimeSup Then
+                Set supItems = New Collection
+                supItems.Add supNode
+                If extraSup <> 0 Then supItems.Add extraSup
+                listNd = AllocNode(AST_LIST)
+                Set mNodes(listNd).ChildList = supItems
+                supNode = listNd
+                isPrimeSup = False
+            Else
+                supNode = extraSup
+            End If
+        Else
+            If supNode <> 0 Then Exit Do
+            primes = ""
+            Do While CurTok().TokType = TOK_CHAR And CurTok().Val = "'"
+                primes = primes & ChrW(&H2032)
+                AdvanceTok
+            Loop
+            supNode = AllocNode(AST_CHAR)
+            mNodes(supNode).Str1 = primes
+            isPrimeSup = True
         End If
     Loop
     If subNode <> 0 Or supNode <> 0 Then

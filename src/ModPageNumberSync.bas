@@ -8,6 +8,11 @@ Option Explicit
 ' Architecture: Academic Document Format Engine (Multi-Zone Batch Sync & Bounded Convergence)
 ' ==============================================================================
 
+Private mSecCacheActive As Boolean
+Private mSecStyles() As Long
+Private mSecHasStyle() As Boolean
+Private mSecCap As Long
+
 Public Function ToRomanLowerCase(ByVal num As Long) As String
     If num <= 0 Or num > 3999 Then
         ToRomanLowerCase = CStr(num)
@@ -25,6 +30,50 @@ Public Function ToRomanLowerCase(ByVal num As Long) As String
         Loop
     Next i
     ToRomanLowerCase = res
+End Function
+
+Public Sub ResetSectionStyleCache()
+    mSecCacheActive = False
+    mSecCap = 0
+    Erase mSecStyles
+    Erase mSecHasStyle
+End Sub
+
+Private Function QuerySectionNumberStyle(ByVal r As Range) As Long
+    Dim secNum As Long, secStyle As Long, idx As Long
+    On Error Resume Next
+    secNum = r.Information(2) ' wdActiveEndSectionNumber = 2
+    If Err.Number <> 0 Then
+        Err.Clear
+        secNum = 0
+    End If
+    If mSecCacheActive And secNum >= 1 And secNum <= 256 Then
+        If secNum <= mSecCap Then
+            If mSecHasStyle(secNum) Then
+                QuerySectionNumberStyle = mSecStyles(secNum)
+                Exit Function
+            End If
+        End If
+    End If
+    secStyle = r.Sections(1).Footers(1).PageNumbers.NumberStyle
+    If Err.Number <> 0 Then
+        Err.Clear
+        secStyle = r.Sections(1).Headers(1).PageNumbers.NumberStyle
+    End If
+    If Err.Number <> 0 Then
+        secStyle = 0
+        Err.Clear
+    End If
+    If mSecCacheActive And secNum >= 1 And secNum <= 256 Then
+        If secNum > mSecCap Then
+            mSecCap = secNum + 16
+            ReDim Preserve mSecStyles(1 To mSecCap)
+            ReDim Preserve mSecHasStyle(1 To mSecCap)
+        End If
+        mSecStyles(secNum) = secStyle
+        mSecHasStyle(secNum) = True
+    End If
+    QuerySectionNumberStyle = secStyle
 End Function
 
 Public Function GetFormattedPageNumber(ByVal targetRng As Range, ByVal pageMode As Long) As String
@@ -47,16 +96,7 @@ Public Function GetFormattedPageNumber(ByVal targetRng As Range, ByVal pageMode 
     End If
     
     Dim secNumberStyle As Long
-    secNumberStyle = 0
-    secNumberStyle = r.Sections(1).Footers(1).PageNumbers.NumberStyle
-    If Err.Number <> 0 Or secNumberStyle = 0 Then
-        Err.Clear
-        secNumberStyle = r.Sections(1).Headers(1).PageNumbers.NumberStyle
-    End If
-    If Err.Number <> 0 Then
-        secNumberStyle = 0
-        Err.Clear
-    End If
+    secNumberStyle = QuerySectionNumberStyle(r)
     
     Select Case secNumberStyle
         Case 1 ' wdPageNumberStyleUppercaseRoman = 1
@@ -84,14 +124,21 @@ Public Function CalculateRightTab(ByVal doc As Document, Optional ByVal targetRn
     End If
     Dim w As Single
     w = ps.PageWidth - ps.LeftMargin - ps.RightMargin
+    If ps.Gutter > 0 And ps.GutterPos <> 1 Then
+        w = w - ps.Gutter
+    End If
     If w > 10# And w < 2000# Then
         CalculateRightTab = w
         Exit Function
     End If
 FallbackTab:
     On Error Resume Next
-    Dim w2 As Single
-    w2 = doc.Sections(1).PageSetup.PageWidth - doc.Sections(1).PageSetup.LeftMargin - doc.Sections(1).PageSetup.RightMargin
+    Dim ps1 As PageSetup, w2 As Single
+    Set ps1 = doc.Sections(1).PageSetup
+    w2 = ps1.PageWidth - ps1.LeftMargin - ps1.RightMargin
+    If Err.Number = 0 And ps1.Gutter > 0 And ps1.GutterPos <> 1 Then
+        w2 = w2 - ps1.Gutter
+    End If
     If Err.Number = 0 And w2 > 10# And w2 < 2000# Then
         CalculateRightTab = w2
     Else
@@ -205,6 +252,8 @@ Public Function SyncAllListPages(ByVal doc As Document, ByVal pageMode As Long) 
     Dim lastPassChanged As Boolean
     lastPassChanged = False
     Dim writeFailures As Long
+    ResetSectionStyleCache
+    mSecCacheActive = True
     
     For pass = 1 To 2
         anyChangedInPass = False
@@ -295,9 +344,11 @@ Public Function SyncAllListPages(ByVal doc As Document, ByVal pageMode As Long) 
             SyncAllListPages = False
         End If
     End If
+    ResetSectionStyleCache
     Exit Function
 
 ErrHandler:
+    ResetSectionStyleCache
     SyncAllListPages = False
     ModConstants.g_SilentErrors = ModConstants.g_SilentErrors + 1
     ModRibbonCallbacks.g_LastError = "SyncAllListPages Error " & Err.Number & ": " & Err.Description

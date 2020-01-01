@@ -86,6 +86,125 @@ function Clear-WordResiliencyBlock {
     return $cleared
 }
 
+function Test-InstructionContentSignature {
+    param([string]$HeadText)
+    if (-not $HeadText) { return $false }
+    if ($HeadText -match '<!--\s*AF-INSTRUCTION-SIGNATURE:\s*AcademicFormatter\s*-->') { return $true }
+    if (($HeadText -match 'Academic Document Format Engine') -and ($HeadText -match 'AcademicFormatter\.dotm')) { return $true }
+    return $false
+}
+
+function Test-InstructionIntegrity {
+    param([string]$FilePath)
+    if (-not (Test-Path -LiteralPath $FilePath)) { return $false }
+    $fi = Get-Item -LiteralPath $FilePath -ErrorAction SilentlyContinue
+    if (-not $fi -or $fi.Length -lt 5120 -or $fi.Length -gt 512000) { return $false }
+    try {
+        $raw = [System.IO.File]::ReadAllText($FilePath, [System.Text.Encoding]::UTF8)
+        if (-not $raw) { return $false }
+        $trimHead = $raw.TrimStart([char]0xFEFF, ' ', "`t", "`r", "`n")
+        if ($trimHead -imatch '^(<!DOCTYPE|<html)') { return $false }
+        $head = if ($raw.Length -gt 4096) { $raw.Substring(0, 4096) } else { $raw }
+        return (Test-InstructionContentSignature -HeadText $head)
+    } catch {
+        return $false
+    }
+}
+
+function Resolve-InstructionTarget {
+    param([string]$ScriptDir)
+    $defaultPath = Join-Path $ScriptDir 'INSTRUCTION.md'
+    $altPath = Join-Path $ScriptDir 'AcademicFormatter_INSTRUCTION.md'
+    if (-not (Test-Path -LiteralPath $defaultPath)) {
+        return [pscustomobject]@{ TargetPath = $defaultPath; IsForeignConflict = $false }
+    }
+    try {
+        $sr = New-Object System.IO.StreamReader($defaultPath, [System.Text.Encoding]::UTF8, $true)
+        try {
+            $buf = New-Object char[] 4096
+            $readLen = $sr.ReadBlock($buf, 0, 4096)
+            $head = New-Object string($buf, 0, $readLen)
+        } finally {
+            $sr.Dispose()
+        }
+        if (Test-InstructionContentSignature -HeadText $head) {
+            return [pscustomobject]@{ TargetPath = $defaultPath; IsForeignConflict = $false }
+        }
+    } catch {}
+    return [pscustomobject]@{ TargetPath = $altPath; IsForeignConflict = $true }
+}
+
+function Sync-InstructionManual {
+    param(
+        [string]$ScriptDir,
+        [string[]]$Urls = @(
+            'https://github.com/Candy-Stevia/vba-essay-formatter/releases/latest/download/INSTRUCTION.md',
+            'https://raw.githubusercontent.com/Candy-Stevia/vba-essay-formatter/main/INSTRUCTION.md'
+        )
+    )
+    $res = Resolve-InstructionTarget -ScriptDir $ScriptDir
+    $targetPath = $res.TargetPath
+    if ($res.IsForeignConflict) {
+        Write-Host '[WARNING] Existing INSTRUCTION.md does not belong to AcademicFormatter; keeping it untouched.' -ForegroundColor Yellow
+        Write-Host '          Saving AcademicFormatter guide to: AcademicFormatter_INSTRUCTION.md' -ForegroundColor Yellow
+        Write-Host '[CANH BAO] INSTRUCTION.md hien co thuoc du an khac; giu nguyen va luu vao AcademicFormatter_INSTRUCTION.md.' -ForegroundColor Yellow
+    }
+
+    $tmpInst = Join-Path $ScriptDir ('AF_inst_' + [guid]::NewGuid().ToString('N') + '.tmp')
+    $hasTarget = Test-Path -LiteralPath $targetPath
+    $status = 'kept_local'
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        $dlOk = $false
+        $lastEx = $null
+        foreach ($u in $Urls) {
+            try {
+                Invoke-WebRequest -Uri $u -OutFile $tmpInst -TimeoutSec 5 -UseBasicParsing
+                $dlOk = $true
+                break
+            } catch {
+                $lastEx = $_
+                if ($_.Exception.Response -and $_.Exception.Response.StatusCode.value__ -eq 404) { continue }
+                throw
+            }
+        }
+        if (-not $dlOk -and $lastEx) { throw $lastEx }
+        if (-not (Test-InstructionIntegrity -FilePath $tmpInst)) {
+            throw [System.InvalidOperationException]::new('Downloaded INSTRUCTION.md failed integrity or signature check.')
+        }
+        $remoteHash = (Get-FileHash -LiteralPath $tmpInst -Algorithm SHA256).Hash
+        $localHash = $null
+        if ($hasTarget) { $localHash = (Get-FileHash -LiteralPath $targetPath -Algorithm SHA256).Hash }
+        if ($localHash -and $remoteHash -eq $localHash) {
+            Remove-Item -LiteralPath $tmpInst -Force -ErrorAction SilentlyContinue
+            $status = 'up_to_date'
+            Write-Host '[UP TO DATE] INSTRUCTION.md is already up to date.' -ForegroundColor Green
+            Write-Host '[MOI NHAT] Huong dan INSTRUCTION.md da la ban moi nhat.' -ForegroundColor Green
+        } else {
+            Move-Item -LiteralPath $tmpInst -Destination $targetPath -Force
+            try { Unblock-File -LiteralPath $targetPath -ErrorAction SilentlyContinue } catch {}
+            $status = 'updated'
+            Write-Host "[OK] Synchronized latest guide to: $targetPath" -ForegroundColor Green
+            Write-Host "[OK] Da cap nhat huong dan moi nhat tai: $targetPath" -ForegroundColor Green
+        }
+    } catch {
+        if (Test-Path -LiteralPath $tmpInst) { Remove-Item -LiteralPath $tmpInst -Force -ErrorAction SilentlyContinue }
+        $status = if ($hasTarget) { 'offline_kept' } else { 'offline_missing' }
+        Write-Host "[WARNING] Could not auto-update guide online ($($_.Exception.Message)); continuing safely." -ForegroundColor Yellow
+        Write-Host '[CANH BAO] Khong cap nhat duoc huong dan online (offline hoac file bi khoa); giu nguyen ban hien co.' -ForegroundColor Yellow
+    }
+
+    $fullPath = if (Test-Path -LiteralPath $targetPath) { [System.IO.Path]::GetFullPath($targetPath) } else { '' }
+    return [pscustomobject]@{
+        Status = $status
+        TargetPath = $targetPath
+        FullPath = $fullPath
+        IsForeignConflict = $res.IsForeignConflict
+    }
+}
+
+#__PS_MAIN__
+
 $localSrc = $env:SRC_DOTM
 $hasLocal = Test-Path -LiteralPath $localSrc
 $localValid = $hasLocal -and (Test-DotmIntegrity -FilePath $localSrc)
@@ -300,6 +419,10 @@ if ($srcHash -ne $dstHash -or -not (Test-DotmIntegrity -FilePath $dest)) {
 Write-Host "[OK] Installed to: $dest" -ForegroundColor Green
 Write-Host "[OK] Da cai dat vao: $dest" -ForegroundColor Green
 
+$scriptDir = Split-Path -Parent $env:SELF_BAT
+if (-not $scriptDir) { $scriptDir = (Get-Location).Path }
+$instSync = Sync-InstructionManual -ScriptDir $scriptDir
+
 $vbaWarn = $null
 foreach ($sk in @("HKCU:\Software\Policies\Microsoft\Office\$verKey\Word\Security", "HKCU:\Software\Microsoft\Office\$verKey\Word\Security")) {
     if (Test-Path -LiteralPath $sk) {
@@ -312,6 +435,16 @@ if ($vbaWarn -eq 4) {
     Write-Host '          Open Word > File > Options > Trust Center > Macro Settings to enable.' -ForegroundColor Yellow
     Write-Host '[CANH BAO] Word dang tat tat ca Macro khong thong bao.' -ForegroundColor Yellow
     Write-Host '           Vao File > Options > Trust Center > Macro Settings de bat.' -ForegroundColor Yellow
+}
+
+if ($instSync -and $instSync.FullPath) {
+    Write-Host ''
+    Write-Host '============================================================================' -ForegroundColor Cyan
+    Write-Host "[AI GUIDE] Latest manual ready at: $($instSync.FullPath)" -ForegroundColor Cyan
+    Write-Host '           Always send THIS exact newest file to AI (ChatGPT/Claude/Gemini).' -ForegroundColor White
+    Write-Host "[HUONG DAN AI] Ban moi nhat dang o: $($instSync.FullPath)" -ForegroundColor Cyan
+    Write-Host '               Hay gui DUNG file tai dia chi nay cho AI de tranh sai phien ban!' -ForegroundColor White
+    Write-Host '============================================================================' -ForegroundColor Cyan
 }
 
 Write-Host '[DONE] Open Word and select the Formatter Macro tab.' -ForegroundColor Green

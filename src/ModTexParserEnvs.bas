@@ -244,8 +244,9 @@ Public Function IsBigOpenMatched(ByVal cmd As String, ByVal rawDelim As String) 
     Dim i As Long, nextIdx As Long, dParen As Long, dBrack As Long, dBrace As Long, dLeft As Long, dEnv As Long, dBig As Long
     Dim t As TexToken
     Dim nextVal As String
-    Dim isSym As Boolean, atTop As Boolean
+    Dim isSym As Boolean, atTop As Boolean, closeCmd As String
 
+    closeCmd = ModTexSymbols.MapBigCloseCmd(cmd)
     isSym = IsSymmetricDelim(rawDelim)
     If Not isSym And Not IsOpenDelim(rawDelim) Then
         IsBigOpenMatched = False
@@ -300,16 +301,16 @@ Public Function IsBigOpenMatched(ByVal cmd As String, ByVal rawDelim As String) 
                     Exit Do
                 End If
                 dEnv = dEnv - 1
-            ElseIf t.Val = cmd And atTop Then
+            ElseIf (t.Val = cmd Or t.Val = closeCmd) And atTop Then
                 nextVal = PeekNextNonSpaceVal(i, nextIdx)
                 If isSym And IsSymmetricDelim(nextVal) Then
-                    If MapDelimToken(nextVal) = MapDelimToken(rawDelim) And dBig = 0 Then
+                    If t.Val = closeCmd And MapDelimToken(nextVal) = MapDelimToken(rawDelim) And dBig = 0 Then
                         IsBigOpenMatched = True
                         Exit Function
                     End If
-                ElseIf IsOpenDelim(nextVal) Then
+                ElseIf t.Val = cmd And IsOpenDelim(nextVal) Then
                     dBig = dBig + 1
-                ElseIf IsCloseDelim(nextVal) Then
+                ElseIf t.Val = closeCmd And IsCloseDelim(nextVal) Then
                     If dBig = 0 Then
                         If Not isSym Then
                             IsBigOpenMatched = True

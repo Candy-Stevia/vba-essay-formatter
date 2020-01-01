@@ -12,6 +12,10 @@ Public Const OP_KIND_FIX As Long = 1
 Public Const OP_KIND_CITE As Long = 2
 Public Const OP_KIND_STRUCT As Long = 3
 Private Const MAX_HEADING_LEN As Long = 350
+Private mRefBmDocPtr As LongPtr
+Private mRefBmCount As Long
+Private mRefBmNames() As String
+Private mRefBmStarts() As Long
 
 Public Type RefTargetInfo
     KeyId As String
@@ -98,8 +102,8 @@ Public Sub NormalizeWithPosMap(ByVal rawTxt As String, ByRef outNorm As String, 
     For i = 1 To rawLen
         ch = Mid$(rawTxt, i, 1)
         code = AscW(ch) And &HFFFF&
-        If code = 13 Or code = 7 Or code = &HAD Then
-            ' Strip paragraph mark, cell bell marker, and soft hyphen
+        If code = 13 Or code = 7 Or code = &HAD Or code = &H200B Or code = &H200C Or code = &H200D Or code = &HFEFF Then
+            ' Strip paragraph mark, cell bell marker, soft hyphen, and zero-width chars
         ElseIf code = 32 Or code = 9 Or code = 10 Or code = 11 Or code = 12 Or code = &HA0 Or code = &H202F Then
             If outLen > 0 Then
                 If Not inSpace Then
@@ -176,10 +180,25 @@ Public Function ScanDocForPatch(ByVal doc As Document, ByRef outMarkers As Marke
         outErr = ModConstants.Uni("Missing =contentStart() marker. Insert =contentStart() before running AI Patch. (Thi\u1ebfu th\u1ebb =contentStart().)")
         Exit Function
     End If
-    Dim bm As Bookmark, bmNum As Long
+    Dim bm As Bookmark, bmNum As Long, bmCap As Long
+    mRefBmDocPtr = ObjPtr(doc)
+    mRefBmCount = 0
+    bmCap = 32
+    ReDim mRefBmNames(1 To bmCap)
+    ReDim mRefBmStarts(1 To bmCap)
     For Each bm In doc.Bookmarks
-        bmNum = ExtractRefBmNum(bm.Name)
-        If bmNum > outMaxRefNum Then outMaxRefNum = bmNum
+        If Left$(bm.Name, 7) = BM_PREFIX_REF Then
+            bmNum = ExtractRefBmNum(bm.Name)
+            If bmNum > outMaxRefNum Then outMaxRefNum = bmNum
+            mRefBmCount = mRefBmCount + 1
+            If mRefBmCount > bmCap Then
+                bmCap = bmCap * 2
+                ReDim Preserve mRefBmNames(1 To bmCap)
+                ReDim Preserve mRefBmStarts(1 To bmCap)
+            End If
+            mRefBmNames(mRefBmCount) = bm.Name
+            mRefBmStarts(mRefBmCount) = bm.Range.Start
+        End If
     Next bm
     ModTableIndex.BuildTableIndex doc
     Dim reL1 As Object, reL2 As Object, reL3 As Object, reL4 As Object
@@ -256,7 +275,7 @@ Public Function ScanDocForPatch(ByVal doc As Document, ByRef outMarkers As Marke
                         ElseIf refCls = -1 Then
                             inRefZone = False
                         End If
-                    ElseIf inRefZone And nLen <= 100 Then
+                    ElseIf inRefZone And nLen <= 100 And InStr(1, normTxt, "(") = 0 Then
                         If ModLocale.ClassifyRefZoneHeading(normTxt) = -1 Then inRefZone = False
                     End If
                 End If
@@ -281,12 +300,21 @@ Public Function ScanDocForPatch(ByVal doc As Document, ByRef outMarkers As Marke
     ScanDocForPatch = True
 End Function
 
-Private Function FindExistingRefBmInPara(ByVal doc As Document, ByVal pStart As Long, ByVal pEnd As Long) As String
-    Dim bm As Bookmark
+Private Function FindCachedRefBmInPara(ByVal doc As Document, ByVal pStart As Long, ByVal pEnd As Long) As String
+    Dim k As Long, bm As Bookmark
+    If mRefBmDocPtr = ObjPtr(doc) Then
+        For k = 1 To mRefBmCount
+            If mRefBmStarts(k) >= pStart And mRefBmStarts(k) < pEnd Then
+                FindCachedRefBmInPara = mRefBmNames(k)
+                Exit Function
+            End If
+        Next k
+        Exit Function
+    End If
     For Each bm In doc.Bookmarks
         If Left$(bm.Name, 7) = BM_PREFIX_REF Then
             If bm.Range.Start >= pStart And bm.Range.Start < pEnd Then
-                FindExistingRefBmInPara = bm.Name
+                FindCachedRefBmInPara = bm.Name
                 Exit Function
             End If
         End If
@@ -349,7 +377,7 @@ Public Sub ResolveRefsTargets(ByVal doc As Document, ByRef rawRefs() As PatchRef
             outTargets(i).Found = True
             outTargets(i).ParaIndex = paras(hitParaArrIdx).ParaIndex
             outTargets(i).RefArrIdx = hitParaArrIdx
-            existBm = FindExistingRefBmInPara(doc, paras(hitParaArrIdx).RangeStart, paras(hitParaArrIdx).RangeEnd)
+            existBm = FindCachedRefBmInPara(doc, paras(hitParaArrIdx).RangeStart, paras(hitParaArrIdx).RangeEnd)
             If Len(existBm) > 0 Then
                 outTargets(i).BmName = existBm
             Else

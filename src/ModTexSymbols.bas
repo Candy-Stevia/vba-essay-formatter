@@ -298,4 +298,39 @@ Public Function EscapeXml(ByVal s As String) As String
         EscapeXml = Join(parts, "")
     End If
 End Function
+
+Public Function IsNoOpMathCmd(ByVal cmd As String) As Boolean
+    IsNoOpMathCmd = (cmd = "\limits" Or cmd = "\nolimits" Or cmd = "\nonumber" Or cmd = "\notag")
+End Function
+
+Public Function IsStyleMathCmd(ByVal cmd As String) As Boolean
+    IsStyleMathCmd = (cmd = "\displaystyle" Or cmd = "\textstyle")
+End Function
+
+Public Function IsExpressionStopTok(ByVal tokType As Integer, ByVal tokVal As String) As Boolean
+    If tokType = TOK_EOF Or tokType = TOK_RBRACE Or tokType = TOK_RPAREN Or tokType = TOK_RBRACK Or tokType = TOK_AMP Or tokType = TOK_NEWLINE Then
+        IsExpressionStopTok = True
+    ElseIf tokType = TOK_CMD Then
+        IsExpressionStopTok = (tokVal = "\end" Or tokVal = "\right")
+    End If
+End Function
+
+Public Function MapBigCloseCmd(ByVal cmd As String) As String
+    Select Case cmd
+        Case "\big", "\bigg", "\Big", "\Bigg"
+            MapBigCloseCmd = cmd
+        Case "\bigl"
+            MapBigCloseCmd = "\bigr"
+        Case "\Bigl"
+            MapBigCloseCmd = "\Bigr"
+        Case "\biggl"
+            MapBigCloseCmd = "\biggr"
+        Case "\Biggl"
+            MapBigCloseCmd = "\Biggr"
+    End Select
+End Function
+
+Public Function IsBigCloseOnlyCmd(ByVal cmd As String) As Boolean
+    IsBigCloseOnlyCmd = (cmd = "\bigr" Or cmd = "\Bigr" Or cmd = "\biggr" Or cmd = "\Biggr")
+End Function
 ' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

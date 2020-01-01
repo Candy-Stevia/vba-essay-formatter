@@ -10,13 +10,15 @@ Option Explicit
 
 Private Function FindUniqueViaWordFind(ByVal doc As Document, ByVal boundStart As Long, ByVal boundEnd As Long, _
                                        ByVal needle As String, ByRef outStart As Long, ByRef outEnd As Long) As Boolean
-    If Len(needle) = 0 Or Len(needle) > 250 Then Exit Function
+    Dim escNeedle As String
+    escNeedle = Replace(needle, "^", "^^")
+    If Len(escNeedle) = 0 Or Len(escNeedle) > 250 Then Exit Function
     Dim r As Range, cnt As Long, prevPos As Long, pos As Long
     pos = boundStart
     Do While pos < boundEnd
         Set r = doc.Range(pos, boundEnd)
         r.Find.ClearFormatting
-        If Not r.Find.Execute(FindText:=needle, MatchCase:=True, MatchWholeWord:=False, _
+        If Not r.Find.Execute(FindText:=escNeedle, MatchCase:=True, MatchWholeWord:=False, _
                               MatchWildcards:=False, Forward:=True, Wrap:=0, Format:=False) Then Exit Do
         If r.End > boundEnd Or r.Start < pos Then Exit Do
         cnt = cnt + 1

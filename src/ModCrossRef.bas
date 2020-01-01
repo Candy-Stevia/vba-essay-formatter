@@ -358,16 +358,25 @@ ClearOnly:
                     Else
                         searchPos = pRng.Start
                         Set mRng = pRng.Duplicate
+                        Dim needDotChk As Boolean, trailEnd As Long, trailStr As String, dotOk As Boolean
+                        needDotChk = (Right$(rawSub, 1) = ".")
                         Do While searchPos < pRng.End
                             mRng.SetRange searchPos, pRng.End
                             mRng.Find.ClearFormatting
-                            If Not mRng.Find.Execute(FindText:=rawSub, MatchCase:=False, MatchWholeWord:=False, _
+                            If Not mRng.Find.Execute(FindText:=rawSub, MatchCase:=True, MatchWholeWord:=False, _
                                                      MatchWildcards:=False, Forward:=True, Wrap:=0, Format:=False) Then Exit Do
                             If mRng.End > pRng.End Then Exit Do
                             prevPos = searchPos
                             searchPos = mRng.End
                             If searchPos <= prevPos Then searchPos = prevPos + 1
-                            If IsCrossRefBoundaryOk(doc, mRng, pRng) And mRng.OMaths.Count = 0 And mRng.Fields.Count = 0 And mRng.Hyperlinks.Count = 0 Then
+                            dotOk = True
+                            If needDotChk Then
+                                trailEnd = mRng.End + 2
+                                If trailEnd > pRng.End Then trailEnd = pRng.End
+                                If trailEnd > mRng.End Then trailStr = doc.Range(mRng.End, trailEnd).Text Else trailStr = ""
+                                dotOk = IsErroneousTrailingDot(trailStr, 1)
+                            End If
+                            If dotOk And IsCrossRefBoundaryOk(doc, mRng, pRng) And mRng.OMaths.Count = 0 And mRng.Fields.Count = 0 And mRng.Hyperlinks.Count = 0 Then
                                 ApplySingleCrossRef doc, mRng, normStr, rawSub, bmName, tipText, linkColor, False
                                 If mRng.End > prevPos Then searchPos = mRng.End
                             End If

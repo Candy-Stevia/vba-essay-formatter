@@ -123,14 +123,28 @@ Public Sub ComputeLatexFlags(ByVal doc As Document, _
                 outIsLatex(i) = True
                 i = i + 1
             Else
-                Dim maxLimit As Long, j As Long, foundEnd As Long
+                Dim maxLimit As Long, j As Long, foundEnd As Long, startInTbl As Boolean
                 maxLimit = i + LATEX_MAX_SPAN
                 If maxLimit > totalParas Then maxLimit = totalParas
                 foundEnd = 0
+                startInTbl = CBool(doc.Paragraphs(i).Range.Information(12))
                 
                 For j = i + 1 To maxLimit
                     Dim scanText As String
                     scanText = pTexts(j)
+                    If LCase$(scanText) = "=contentend()" Then Exit For
+                    If CBool(doc.Paragraphs(j).Range.Information(12)) <> startInTbl Then Exit For
+                    If openType = 1 Or openType = 2 Then
+                        Dim sDd As Long, sClose As Long, sOpen As Long
+                        If Left$(scanText, 2) = "$$" And Len(scanText) > 2 Then
+                            sDd = CountUnescapedDoubleDollar(scanText)
+                            If sDd >= 2 And (sDd Mod 2) = 0 Then Exit For
+                        ElseIf Left$(scanText, 2) = "\[" And Len(scanText) > 2 Then
+                            sClose = InStrRev(scanText, "\]")
+                            sOpen = InStrRev(scanText, "\[")
+                            If sClose >= 3 And sOpen < sClose Then Exit For
+                        End If
+                    End If
                     Select Case openType
                         Case 1 ' $$
                             If CountUnescapedDoubleDollar(scanText) > 0 Then

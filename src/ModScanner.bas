@@ -21,7 +21,54 @@ Public Type ParagraphSnapshot
     FirstLineText As String
 End Type
 
+Public Type QuickRegexPool
+    ReL1 As Object
+    ReL2 As Object
+    ReL3 As Object
+    ReL4 As Object
+    ReTbl As Object
+    ReFig As Object
+    ReSrc As Object
+    ReMrk As Object
+    ReManToc As Object
+    ReManLot As Object
+    ReManLof As Object
+End Type
+
 Private Const MAX_HEADING_LEN As Long = 350
+
+Public Sub InitQuickRegexPool(ByRef pool As QuickRegexPool)
+    Set pool.ReL1 = CreateRegex(ModLocale.GetPatternLevel1())
+    Set pool.ReL2 = CreateRegex(ModConstants.GetPatternLevel2())
+    Set pool.ReL3 = CreateRegex(ModConstants.GetPatternLevel3())
+    Set pool.ReL4 = CreateRegex(ModConstants.GetPatternLevel4())
+    Set pool.ReTbl = CreateRegex(ModLocale.GetPatternTable())
+    Set pool.ReFig = CreateRegex(ModLocale.GetPatternFigure())
+    Set pool.ReSrc = CreateRegex(ModLocale.GetPatternSourceNote())
+    Set pool.ReMrk = CreateRegex(ModConstants.GetPatternMarker())
+    Set pool.ReManToc = CreateRegex(ModLocale.GetPatternManualToc())
+    Set pool.ReManLot = CreateRegex(ModLocale.GetPatternManualLot())
+    Set pool.ReManLof = CreateRegex(ModLocale.GetPatternManualLof())
+End Sub
+
+Public Sub CollectOldListRanges(ByVal doc As Document, ByRef exclStarts() As Long, ByRef exclEnds() As Long, ByRef outNum As Long)
+    outNum = doc.TablesOfContents.Count + doc.TablesOfFigures.Count
+    If outNum <= 0 Then Exit Sub
+    ReDim exclStarts(1 To outNum)
+    ReDim exclEnds(1 To outNum)
+    Dim tIdx As Long, tocObj As TableOfContents, tofObj As TableOfFigures
+    tIdx = 0
+    For Each tocObj In doc.TablesOfContents
+        tIdx = tIdx + 1
+        exclStarts(tIdx) = tocObj.Range.Start
+        exclEnds(tIdx) = tocObj.Range.End
+    Next tocObj
+    For Each tofObj In doc.TablesOfFigures
+        tIdx = tIdx + 1
+        exclStarts(tIdx) = tofObj.Range.Start
+        exclEnds(tIdx) = tofObj.Range.End
+    Next tofObj
+End Sub
 
 Private Function CreateRegex(ByVal pat As String, Optional ByVal ignoreCase As Boolean = True) As Object
     Dim re As Object

@@ -35,8 +35,8 @@ Private Function FindManualLoaHeadingPara(ByVal doc As Document) As Long
     For Each p In doc.Paragraphs
         i = i + 1
         If i >= csIdx Then Exit For
-        If Not CBool(p.Range.Information(12)) And p.Range.Hyperlinks.Count = 0 Then
-            If IsManualLoaHeading(p.Range.Text) Then
+        If IsManualLoaHeading(p.Range.Text) Then
+            If Not CBool(p.Range.Information(12)) And p.Range.Hyperlinks.Count = 0 Then
                 FindManualLoaHeadingPara = i
                 Exit Function
             End If
@@ -248,9 +248,12 @@ End Sub
 Private Function ResolveLoaInsertRange(ByVal doc As Document, ByVal hdrTitle As String, _
                                        ByVal fontName As String, ByVal fontSize As Single, _
                                        ByRef outHdrRng As Range) As Range
-    Dim mPara As Long, hPara As Long, anchorEnd As Long, hRng As Range, nextRng As Range
+    Dim mPara As Long, hPara As Long, anchorEnd As Long, hRng As Range, nextRng As Range, reuseHdr As Boolean
     mPara = ModMarkerLexer.FindMarkerParagraph(doc, "=listacronyms()")
-    If mPara > 0 Then
+    If mPara > 0 And doc.Bookmarks.Exists(BM_LOA_HEADER) Then
+        reuseHdr = (doc.Bookmarks(BM_LOA_HEADER).Range.Paragraphs(1).Range.Start = doc.Paragraphs(mPara).Range.End)
+    End If
+    If mPara > 0 And Not reuseHdr Then
         WipeAcronymZone doc, True
         mPara = ModMarkerLexer.FindMarkerParagraph(doc, "=listacronyms()")
         anchorEnd = doc.Paragraphs(mPara).Range.End

@@ -289,8 +289,16 @@ Public Function ParseAiPatch(ByVal rawInput As String, ByRef outPatch As PatchPa
         ElseIf curMode = "@ACRONYMS" Then
             ParseAcronymLine trimmed, idx + 1, outPatch
         ElseIf curMode = "@CITE" Then
+            If ExtractFieldValue(trimmed, "REF:") And Len(curCite.RefKey) > 0 Then
+                FlushOpenBlock curMode, curCite, curFix, hasOpenCite, hasOpenFix, outPatch
+                hasOpenCite = True
+            End If
             ParseCiteField trimmed, idx + 1, curCite, hasOpenCite
         ElseIf curMode = "@FIX" Or curMode = "@STRUCT" Then
+            If ExtractFieldValue(trimmed, "CTX:") And Len(curFix.CtxText) > 0 Then
+                FlushOpenBlock curMode, curCite, curFix, hasOpenCite, hasOpenFix, outPatch
+                hasOpenFix = True
+            End If
             ParseFixField trimmed, idx + 1, curFix, hasOpenFix
         End If
 NextLn:

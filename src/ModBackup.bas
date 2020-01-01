@@ -140,32 +140,27 @@ Public Function CreatePhysicalBackup(ByVal doc As Document, ByRef outBackupPath 
     outErrorMessage = ""
     outBackupPath = GenerateBackupFilePath(doc)
     
-    ' 1. Attempt WordBasic.CopyFileA first
-    On Error Resume Next
-    WordBasic.CopyFileA doc.FullName, outBackupPath
-    Err.Clear
-    On Error GoTo ErrorHandler
-    
-    ' 2. Fallback to FSO CopyFile if destination does not exist (Unicode path)
+    ' 1. Copy via FSO CopyFile (Unicode CopyFileW, safe for open docs & Vietnamese paths)
     Dim fsoErrNum As Long, fsoErrDesc As String
     fsoErrNum = 0
     fsoErrDesc = ""
-    If Not FileExistsUnicode(outBackupPath) Then
-        On Error Resume Next
-        Dim fso As Object
-        Set fso = CreateObject("Scripting.FileSystemObject")
-        If Not fso Is Nothing Then
-            fso.CopyFile doc.FullName, outBackupPath, True
-            If Err.Number <> 0 Then
-                fsoErrNum = Err.Number
-                fsoErrDesc = Err.Description
-                Err.Clear
-            End If
+    On Error Resume Next
+    Dim fso As Object
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    If Not fso Is Nothing Then
+        fso.CopyFile doc.FullName, outBackupPath, True
+        If Err.Number <> 0 Then
+            fsoErrNum = Err.Number
+            fsoErrDesc = Err.Description
+            Err.Clear
         End If
-        On Error GoTo ErrorHandler
+    Else
+        fsoErrNum = 429
+        fsoErrDesc = "Scripting.FileSystemObject unavailable"
     End If
+    On Error GoTo ErrorHandler
     
-    ' 3. Deterministic verification that destination file physically exists with content
+    ' 2. Deterministic verification that destination file physically exists with content
     If FileExistsUnicode(outBackupPath) Then
         CreatePhysicalBackup = True
     Else

@@ -215,4 +215,47 @@ Public Function ClassifyRefZoneHeading(ByVal cleanTxt As String, Optional ByVal 
         End If
     End If
 End Function
+
+Private Function TestSingleCurrencyUnit(ByVal rawUnit As String, ByVal numPart As String, ByVal reCurr As Object) As Boolean
+    If rawUnit = "M" Or rawUnit = "B" Or rawUnit = "K" Then
+        TestSingleCurrencyUnit = True
+    ElseIf rawUnit = "k" Then
+        If Val(Replace(Replace(numPart, ",", ""), " ", "")) >= 10# Then
+            TestSingleCurrencyUnit = True
+        End If
+    ElseIf reCurr.Test(rawUnit) Then
+        TestSingleCurrencyUnit = True
+    End If
+End Function
+
+Public Function IsCurrencyUnitMatch(ByVal rawUnitPart As String, ByVal numPart As String) As Boolean
+    Static reCurr As Object, rePeriod As Object
+    If reCurr Is Nothing Then
+        Set reCurr = CreateObject("VBScript.RegExp")
+        reCurr.IgnoreCase = True
+        reCurr.Global = False
+        reCurr.Pattern = "^(?:usd|vnd|eur|gbp|jpy|cny|chf|tr|bn|dong|nghin|ngan|trieu|ty|dollar|dollars|cent|cents|thousand|million|billion|" & _
+                         ModConstants.Uni("tri\u1ec7u|t\u1ef7|ngh\u00ecn|ng\u00e0n|\u0111\u1ed3ng|\u0111") & ")$"
+        Set rePeriod = CreateObject("VBScript.RegExp")
+        rePeriod.IgnoreCase = True
+        rePeriod.Global = False
+        rePeriod.Pattern = "^(?:month|mo|year|yr|day|ngay|unit|thang|nam|nguoi|don vi|" & _
+                           ModConstants.Uni("th\u00e1ng|n\u0103m|ng\u00e0y|ng\u01b0\u1eddi|\u0111\u01a1n v\u1ecb") & ")$"
+    End If
+    Dim slashPos As Long, leftTok As String, rightTok As String
+    slashPos = InStr(1, rawUnitPart, "/")
+    If slashPos > 0 Then
+        leftTok = Trim$(Left$(rawUnitPart, slashPos - 1))
+        rightTok = Trim$(Mid$(rawUnitPart, slashPos + 1))
+        If Len(rightTok) > 0 And rePeriod.Test(rightTok) Then
+            If Len(leftTok) = 0 Then
+                IsCurrencyUnitMatch = True
+            Else
+                IsCurrencyUnitMatch = TestSingleCurrencyUnit(leftTok, numPart, reCurr)
+            End If
+        End If
+    Else
+        IsCurrencyUnitMatch = TestSingleCurrencyUnit(rawUnitPart, numPart, reCurr)
+    End If
+End Function
 ' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

@@ -268,7 +268,7 @@ ErrPatch:
     ModRibbonCallbacks.g_LastError = "AI Patch error (" & Err.Number & "): " & Err.Description
     On Error Resume Next
     If undoStarted Then ModBackup.EndUndoSafe objUndo, undoStarted
-    RestorePatchUiState doc, hasWindowView, prevViewType, hasPaginationState, prevPagination, True, True
+    RestorePatchUiState doc, hasWindowView, prevViewType, hasPaginationState, prevPagination, hasScreenSaved, prevScreen
     If protectedOk Then ModBackup.EndProtectedSession doc, backupPath, wasTracking, True
     If showUiDialogs Then
         ModUI.MsgBoxW ModRibbonCallbacks.g_LastError, vbCritical, ModConstants.Uni("AI Patch Error (L\u1ed7i)")

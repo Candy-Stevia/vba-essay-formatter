@@ -106,14 +106,16 @@ Public Sub CapPrefixAndContent(ByVal doc As Document, ByVal rng As Range, ByVal 
 End Sub
 
 Public Sub FormatSourceNoteRange(ByVal doc As Document, ByVal rng As Range, _
-                                ByVal fontName As String, ByVal fontSize As Single)
+                                ByVal fontName As String, ByVal fontSize As Single, _
+                                Optional ByVal hasOMaths As Boolean = False)
     CapPrefixAndContent doc, rng, ": "
     ModFormatCore.ClearYellowAndRedBleed rng
-    rng.Font.Name = fontName
+    ModFormatSingle.ApplyFontNameSkippingMath doc, rng, fontName, hasOMaths
     rng.Font.Size = fontSize
     rng.ParagraphFormat.Alignment = 0
     rng.ParagraphFormat.FirstLineIndent = 0#
     rng.ParagraphFormat.LeftIndent = 0#
+    rng.ParagraphFormat.KeepWithNext = False
     Dim colonSplitPos As Long
     colonSplitPos = 0
     If rng.Fields.Count = 0 Then

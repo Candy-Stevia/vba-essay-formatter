@@ -48,11 +48,6 @@ Hit:
     IsOldTocPara = True
 End Function
 
-Private Function MatchesPat(ByVal re As Object, ByVal pat As String, ByVal s As String) As Boolean
-    re.Pattern = pat
-    MatchesPat = re.Test(s)
-End Function
-
 Private Function CleanQuickText(ByVal raw As String) As String
     Dim s As String
     s = Replace(Replace(Replace(raw, vbCr, ""), Chr(7), ""), Chr(11), " ")
@@ -63,18 +58,9 @@ Private Sub ScanAndFormatQuickItems(ByVal doc As Document, ByRef markers As Mark
                                     ByRef items() As QuickItem, ByRef itemCount As Long, ByRef cntHead As Long, _
                                     ByRef cntTbl As Long, ByRef cntFig As Long, ByRef cntNotes As Long, _
                                     ByRef qSnaps() As ParagraphSnapshot, ByRef qCount As Long)
-    Dim regEx As Object
-    Set regEx = CreateObject("VBScript.RegExp")
-    regEx.IgnoreCase = True
-    regEx.Global = False
-    Dim patL1 As String, patL2 As String, patL3 As String, patL4 As String, patTbl As String, patFig As String, patSrc As String
-    patL1 = ModLocale.GetPatternLevel1()
-    patL2 = ModConstants.GetPatternLevel2()
-    patL3 = ModConstants.GetPatternLevel3()
-    patL4 = ModConstants.GetPatternLevel4()
-    patTbl = ModLocale.GetPatternTable()
+    Dim qp As QuickRegexPool, patFig As String
+    ModScanner.InitQuickRegexPool qp
     patFig = ModLocale.GetPatternFigure()
-    patSrc = ModLocale.GetPatternSourceNote()
     Dim totalParas As Long, latexFlags() As Boolean, latexWarn As Long, docHasMath As Boolean
     totalParas = doc.Paragraphs.Count
     qCount = totalParas
@@ -83,16 +69,8 @@ Private Sub ScanAndFormatQuickItems(ByVal doc As Document, ByRef markers As Mark
     ModTableIndex.BuildTableIndex doc
     ModLatex.ComputeLatexFlags doc, latexFlags, latexWarn
     docHasMath = (doc.OMaths.Count > 0)
-    Dim numOldTocs As Long, tocS() As Long, tocE() As Long, k As Long
-    numOldTocs = doc.TablesOfContents.Count
-    If numOldTocs > 0 Then
-        ReDim tocS(1 To numOldTocs)
-        ReDim tocE(1 To numOldTocs)
-        For k = 1 To numOldTocs
-            tocS(k) = doc.TablesOfContents(k).Range.Start
-            tocE(k) = doc.TablesOfContents(k).Range.End
-        Next k
-    End If
+    Dim numOldTocs As Long, tocS() As Long, tocE() As Long
+    ModScanner.CollectOldListRanges doc, tocS, tocE, numOldTocs
     Dim i As Long, p As Paragraph, rng As Range, raw As String, clean As String
     Dim inContent As Boolean, inPost As Boolean, tType As Long, bmName As String, inTbl As Boolean, isSkip As Boolean
     i = 0
@@ -107,36 +85,35 @@ Private Sub ScanAndFormatQuickItems(ByVal doc As Document, ByRef markers As Mark
         inContent = (i > markers.ContentStartParaIndex And i < markers.ContentEndParaIndex)
         inPost = (i > markers.ContentEndParaIndex)
         tType = ElementTypeUnknown
-        isSkip = latexFlags(i) Or IsOldTocPara(rng, tocS, tocE, numOldTocs) Or IsMathBlockPara(rng, docHasMath)
+        isSkip = latexFlags(i) Or IsOldTocPara(rng, tocS, tocE, numOldTocs) Or IsMathBlockPara(rng, docHasMath) Or (rng.ListFormat.ListType <> 0)
         If isSkip Then qSnaps(i).IsExcluded = True
         inTbl = ModTableIndex.IsRangeInTable(rng)
         If Not isSkip And Len(raw) <= 550 Then
             clean = CleanQuickText(raw)
             If Len(clean) > 0 And Len(clean) <= 500 Then
-                If rng.ListFormat.ListType <> 0 Then
-                ElseIf Left$(clean, 1) = "=" And MatchesPat(regEx, ModConstants.GetPatternMarker(), clean) Then
-                ElseIf inTbl And Not ModScanner.IsLayoutFigureCaption(rng, clean, regEx, patFig) Then
-                ElseIf MatchesPat(regEx, ModLocale.GetPatternManualToc(), clean) Then
+                If Left$(clean, 1) = "=" And qp.ReMrk.Test(clean) Then
+                ElseIf inTbl And Not ModScanner.IsLayoutFigureCaption(rng, clean, qp.ReFig, patFig) Then
+                ElseIf qp.ReManToc.Test(clean) Then
                     If Not slots(1).Found Then tType = ElementTypeLevel1
-                ElseIf MatchesPat(regEx, ModLocale.GetPatternManualLot(), clean) Then
+                ElseIf qp.ReManLot.Test(clean) Then
                     If Not slots(2).Found Then tType = ElementTypeLevel1
-                ElseIf MatchesPat(regEx, ModLocale.GetPatternManualLof(), clean) Then
+                ElseIf qp.ReManLof.Test(clean) Then
                     If Not slots(3).Found Then tType = ElementTypeLevel1
-                ElseIf MatchesPat(regEx, patL1, clean) Or ModLocale.IsRomanLevel1(clean) Then
+                ElseIf qp.ReL1.Test(clean) Or (inContent And ModLocale.IsRomanLevel1(clean)) Then
                     tType = ElementTypeLevel1
                 ElseIf inContent Or inPost Then
-                    If MatchesPat(regEx, patTbl, clean) Then
+                    If qp.ReTbl.Test(clean) Then
                         tType = ElementTypeTableTitle
-                    ElseIf MatchesPat(regEx, patFig, clean) Then
+                    ElseIf qp.ReFig.Test(clean) Then
                         tType = ElementTypeFigureTitle
-                    ElseIf MatchesPat(regEx, patSrc, clean) Then
+                    ElseIf qp.ReSrc.Test(clean) Then
                         tType = ElementTypeSourceNote
                     ElseIf inContent Then
-                        If MatchesPat(regEx, patL2, clean) Then
+                        If qp.ReL2.Test(clean) Then
                             tType = ElementTypeLevel2
-                        ElseIf MatchesPat(regEx, patL3, clean) Then
+                        ElseIf qp.ReL3.Test(clean) Then
                             tType = ElementTypeLevel3
-                        ElseIf MatchesPat(regEx, patL4, clean) Then
+                        ElseIf qp.ReL4.Test(clean) Then
                             tType = ElementTypeLevel4
                         End If
                     End If
@@ -200,6 +177,7 @@ End Sub
 Private Sub BuildQuickSingleList(ByVal doc As Document, ByRef slot As QuickZoneSlot, ByRef items() As QuickItem, _
                                  ByVal itemCount As Long, ByVal expectedCnt As Long)
     If Not slot.Found Then Exit Sub
+    If (slot.Kind = 2 Or slot.Kind = 3) And expectedCnt <= 0 And slot.MarkerPara > 0 Then Exit Sub
     Dim pIdx As Long, hdrTitle As String, mText As String, i As Long, wantType As Long
     If slot.Kind = 3 Then
         hdrTitle = ModLocale.GetLofHeaderTitle(g_Config.ListLang)
@@ -290,7 +268,7 @@ Private Sub FinalizeQuickZoneBookmarks(ByVal doc As Document, ByRef slots() As Q
 End Sub
 
 Public Sub RunQuickUpdate(Optional ByVal targetDoc As Document = Nothing)
-    If ModMain.g_IsEngineRunning Then Exit Sub
+    If ModMain.g_IsEngineRunning Or ModMathController.g_IsMathBuilding Then Exit Sub
     ModMain.g_IsEngineRunning = True
     On Error GoTo MainErr
     Dim doc As Document

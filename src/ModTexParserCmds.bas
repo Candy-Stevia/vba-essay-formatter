@@ -34,7 +34,7 @@ Private Function IsNaryStopTok() As Boolean
             IsNaryStopTok = True
             Exit Function
         End If
-        If curT.Val = "\Big" Or curT.Val = "\bigg" Or curT.Val = "\Bigg" Then
+        If ModTexSymbols.MapBigCloseCmd(curT.Val) <> "" Or ModTexSymbols.IsBigCloseOnlyCmd(curT.Val) Then
             nextVal = ModTexParserEnvs.PeekNextNonSpaceVal(ModTexAst.mPos, nextIdx)
             If ModTexParserEnvs.IsCloseDelim(nextVal) Then
                 IsNaryStopTok = True
@@ -53,6 +53,7 @@ Private Function ParseNary(ByVal cmd As String, ByVal chVal As String) As Long
     Dim p As Long
 
     ModTexAst.AdvanceTok
+    ModTexAst.SkipLimitMods
     subNode = 0
     supNode = 0
     For p = 1 To 2
@@ -84,35 +85,31 @@ Private Function ParseNary(ByVal cmd As String, ByVal chVal As String) As Long
 End Function
 
 Public Function ParseCommand(ByVal cmd As String) As Long
-    Dim cleanCmd As String
-    Dim fontMode As String
-    Dim numNode As Long
-    Dim denNode As Long
-    Dim baseNode As Long
-    Dim degNode As Long
-    Dim bodyNode As Long
-    Dim subNode As Long
-    Dim supNode As Long
-    Dim fnNode As Long
-    Dim nd As Long
-    Dim begChr As String
-    Dim endChr As String
-    Dim rawDelim As String
-    Dim chVal As String
+    Dim cleanCmd As String, fontMode As String, begChr As String, endChr As String, rawDelim As String, chVal As String
+    Dim numNode As Long, denNode As Long, baseNode As Long, degNode As Long, bodyNode As Long, subNode As Long, supNode As Long, fnNode As Long, nd As Long
 
     If cmd = "\tag" Then
         ModTexAst.AdvanceTok
         ModTexAst.mEqTag = ModTexAst.ConsumeLiteralTextArg()
         ParseCommand = 0
         Exit Function
-    ElseIf cmd = "\displaystyle" Then
+    ElseIf cmd = "\label" Then
+        ModTexAst.AdvanceTok
+        rawDelim = ModTexAst.ConsumeLiteralTextArg()
+        ParseCommand = 0
+        Exit Function
+    ElseIf ModTexSymbols.IsStyleMathCmd(cmd) Then
         Do While ModTexAst.CurTok().TokType = TOK_CMD
-            If ModTexAst.CurTok().Val <> "\displaystyle" Then
-                Exit Do
-            End If
+            If Not ModTexSymbols.IsStyleMathCmd(ModTexAst.CurTok().Val) Then Exit Do
             ModTexAst.AdvanceTok
         Loop
-        ParseCommand = ModTexParser.ParsePrimary()
+        If Not ModTexSymbols.IsExpressionStopTok(ModTexAst.CurTok().TokType, ModTexAst.CurTok().Val) Then
+            ParseCommand = ModTexParser.ParsePrimary()
+        End If
+        Exit Function
+    ElseIf ModTexSymbols.IsNoOpMathCmd(cmd) Then
+        ModTexAst.AdvanceTok
+        ParseCommand = 0
         Exit Function
     ElseIf cmd = "\frac" Or cmd = "\dfrac" Or cmd = "\tfrac" Or cmd = "\cfrac" Or cmd = "\binom" Or cmd = "\dbinom" Or cmd = "\tbinom" Then
         ModTexAst.AdvanceTok
@@ -148,7 +145,7 @@ Public Function ParseCommand(ByVal cmd As String) As Long
         ModTexAst.mNodes(nd).Child2 = degNode
         ParseCommand = ModTexAst.HandleSubSup(nd)
         Exit Function
-    ElseIf cmd = "\left" Or cmd = "\bigg" Or cmd = "\Big" Or cmd = "\Bigg" Then
+    ElseIf cmd = "\left" Or ModTexSymbols.MapBigCloseCmd(cmd) <> "" Or ModTexSymbols.IsBigCloseOnlyCmd(cmd) Then
         ModTexAst.AdvanceTok
         If ModTexAst.CurTok().TokType = TOK_EOF Then
             ModTexAst.SetAmbiguous True
@@ -160,8 +157,8 @@ Public Function ParseCommand(ByVal cmd As String) As Long
         ModTexAst.AdvanceTok
         If cmd = "\left" Then
             bodyNode = ModTexParserEnvs.ParseDelimitedBlock("\right", rawDelim, endChr)
-        ElseIf ModTexParserEnvs.IsBigOpenMatched(cmd, rawDelim) Then
-            bodyNode = ModTexParserEnvs.ParseDelimitedBlock(cmd, rawDelim, endChr)
+        ElseIf ModTexSymbols.MapBigCloseCmd(cmd) <> "" And ModTexParserEnvs.IsBigOpenMatched(cmd, rawDelim) Then
+            bodyNode = ModTexParserEnvs.ParseDelimitedBlock(ModTexSymbols.MapBigCloseCmd(cmd), rawDelim, endChr)
         Else
             If Len(begChr) = 0 Then
                 ParseCommand = 0
@@ -263,6 +260,7 @@ Public Function ParseCommand(ByVal cmd As String) As Long
         fnNode = ModTexAst.AllocNode(AST_TEXT)
         ModTexAst.mNodes(fnNode).Str1 = ModTexAst.ConsumeLiteralTextArg()
         ModTexAst.mNodes(fnNode).Str2 = "roman"
+        ModTexAst.SkipLimitMods
         If cmd = "\operatorname*" And ModTexAst.CurTok().TokType = TOK_SUB Then
             ModTexAst.AdvanceTok
             subNode = ModTexParser.ParseArgument()
@@ -320,6 +318,7 @@ Public Function ParseCommand(ByVal cmd As String) As Long
         End If
         ModTexAst.mNodes(fnNode).Str2 = "roman"
         If cleanCmd = "lim" Or cleanCmd = "min" Or cleanCmd = "max" Or cleanCmd = "inf" Or cleanCmd = "sup" Or cleanCmd = "argmin" Or cleanCmd = "argmax" Then
+            ModTexAst.SkipLimitMods
             If ModTexAst.CurTok().TokType = TOK_SUB Then
                 ModTexAst.AdvanceTok
                 subNode = ModTexParser.ParseArgument()

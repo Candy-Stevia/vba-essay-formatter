@@ -122,7 +122,7 @@ Private Function HasValidAuthorBeforeParen(ByVal txt As String, ByVal parenZeroI
     If UBound(words) < 0 Then Exit Function
     wIdx = UBound(words)
     Do While wIdx >= LBound(words)
-        w = Trim$(Replace(words(wIdx), ",", ""))
+        w = Trim$(Replace(Replace(Replace(words(wIdx), ",", ""), "[", ""), "]", ""))
         If Len(w) > 0 Then Exit Do
         wIdx = wIdx - 1
     Loop

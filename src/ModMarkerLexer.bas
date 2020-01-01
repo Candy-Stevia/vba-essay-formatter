@@ -212,36 +212,46 @@ End Function
 
 Public Sub HighlightMarkers(ByVal doc As Document)
     On Error Resume Next
-    Dim p As Paragraph, cleanText As String, pRng As Range
-    For Each p In doc.Paragraphs
-        Set pRng = p.Range
-        cleanText = LCase$(Trim$(Replace(Replace(Replace(pRng.Text, vbCr, ""), Chr(7), ""), Chr(11), "")))
-        Select Case cleanText
-            Case "=contentstart()", "=contentend()", "=listcontent()", "=listtablehere()", "=listfigurehere()", "=listacronyms()"
-                If Not CBool(pRng.Information(12)) Then
-                    pRng.HighlightColorIndex = 7 ' wdYellow = 7
-                    ModFormatSingle.SafeSetOutlineLevel pRng, 10
-                End If
-        End Select
-    Next p
+    Dim mNames As Variant, k As Long, fRng As Range, pRng As Range, docEnd As Long, prevEnd As Long
+    mNames = Array("=contentstart()", "=contentend()", "=listcontent()", "=listtablehere()", "=listfigurehere()", "=listacronyms()")
+    docEnd = doc.Content.End
+    For k = LBound(mNames) To UBound(mNames)
+        Set fRng = doc.Content.Duplicate
+        ModMathHelpers.InitDomFind fRng.Find, CStr(mNames(k))
+        fRng.Find.MatchCase = False
+        prevEnd = 0
+        Do While fRng.Find.Execute
+            If fRng.End <= prevEnd Then Exit Do
+            prevEnd = fRng.End
+            Set pRng = fRng.Paragraphs(1).Range
+            If LCase$(Trim$(Replace(Replace(Replace(pRng.Text, vbCr, ""), Chr(7), ""), Chr(11), ""))) = CStr(mNames(k)) And Not CBool(pRng.Information(12)) Then
+                pRng.HighlightColorIndex = 7
+                ModFormatSingle.SafeSetOutlineLevel pRng, 10
+            End If
+            If pRng.End >= docEnd Then Exit Do
+            fRng.SetRange pRng.End, docEnd
+        Loop
+    Next k
     If Err.Number <> 0 Then Err.Clear
 End Sub
 
 Public Function FindMarkerParagraph(ByVal doc As Document, ByVal markerText As String) As Long
-    Dim i As Long, p As Paragraph, cleanText As String, pRng As Range
-    i = 0
-    For Each p In doc.Paragraphs
-        i = i + 1
-        Set pRng = p.Range
-        cleanText = LCase$(Trim$(Replace(Replace(Replace(pRng.Text, vbCr, ""), Chr(7), ""), Chr(11), "")))
-        If cleanText = markerText Then
-            If Not CBool(pRng.Information(12)) Then
-                FindMarkerParagraph = i
-                Exit Function
-            End If
+    Dim fRng As Range, pRng As Range, docEnd As Long, prevEnd As Long
+    Set fRng = doc.Content.Duplicate
+    ModMathHelpers.InitDomFind fRng.Find, markerText
+    fRng.Find.MatchCase = False
+    docEnd = doc.Content.End
+    Do While fRng.Find.Execute
+        If fRng.End <= prevEnd Then Exit Do
+        prevEnd = fRng.End
+        Set pRng = fRng.Paragraphs(1).Range
+        If LCase$(Trim$(Replace(Replace(Replace(pRng.Text, vbCr, ""), Chr(7), ""), Chr(11), ""))) = markerText And Not CBool(pRng.Information(12)) Then
+            FindMarkerParagraph = doc.Range(0, pRng.End).Paragraphs.Count
+            Exit Function
         End If
-    Next p
-    FindMarkerParagraph = 0
+        If pRng.End >= docEnd Then Exit Do
+        fRng.SetRange pRng.End, docEnd
+    Loop
 End Function
 
 Public Sub NormalizeContentBreaks(ByVal doc As Document)
