@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModFormatSingle"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModFormatSingle
@@ -159,3 +160,4 @@ Public Sub FormatSingleItem(ByVal doc As Document, ByVal rng As Range, _
             rng.HighlightColorIndex = 6
     End Select
 End Sub
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModProgress"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModProgress
@@ -136,3 +137,4 @@ Private Function BuildProgressBar(ByVal pct As Long) As String
     
     BuildProgressBar = "[" & String$(filled, "=") & String$(emptyCount, " ") & "]"
 End Function
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModTexParser"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModTexParser
@@ -223,3 +224,4 @@ Public Function ParseLatex(ByVal text As String, ByVal isBlock As Boolean, ByRef
     outEqTag = ModTexAst.mEqTag
     ParseLatex = outRoot
 End Function
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

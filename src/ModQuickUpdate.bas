@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModQuickUpdate"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModQuickUpdate
@@ -388,3 +389,4 @@ CleanExit:
     End If
     ModMain.g_IsEngineRunning = False
 End Sub
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

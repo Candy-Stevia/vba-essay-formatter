@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModLocale"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModLocale
@@ -146,3 +147,4 @@ Public Function IsPrefixOnlyHeading(ByVal s As String) As Boolean
     regEx.Pattern = "^(" & enPat & "|" & viPat & ")$"
     IsPrefixOnlyHeading = regEx.Test(t)
 End Function
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

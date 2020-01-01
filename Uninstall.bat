@@ -1,4 +1,5 @@
 @echo off
+REM [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 setlocal
 title Academic Formatter Macro - Uninstaller (Go Cai Dat)
 echo ============================================================================
@@ -77,7 +78,24 @@ if ($wordRunning) {
     Write-Host '[NOTE] Word is currently open. Restart Word to unload the Formatter Macro tab.' -ForegroundColor Yellow
     Write-Host '[LUU Y] Word dang mo. Hay dong va mo lai Word de bo tab Formatter Macro.' -ForegroundColor Yellow
 } else {
+    foreach ($ov in @('16.0', '15.0', '14.0', '12.0')) {
+        foreach ($sub in @('DisabledItems', 'StartupItems')) {
+            $rk = "HKCU:\Software\Microsoft\Office\$ov\Word\Resiliency\$sub"
+            if (Test-Path $rk) {
+                $props = Get-ItemProperty $rk -ErrorAction SilentlyContinue
+                foreach ($pr in $props.PSObject.Properties) {
+                    if ($pr.Name -notlike 'PS*') {
+                        try {
+                            $txt = [System.Text.Encoding]::Unicode.GetString([byte[]]$pr.Value) -replace "`0", ''
+                            if ($txt -match 'AcademicFormatter\.dotm') { Remove-ItemProperty -Path $rk -Name $pr.Name -ErrorAction SilentlyContinue }
+                        } catch {}
+                    }
+                }
+            }
+        }
+    }
     Write-Host '[DONE] Academic Formatter Macro has been completely uninstalled.' -ForegroundColor Green
     Write-Host '[XONG] Da go cai dat hoan toan Academic Formatter Macro.' -ForegroundColor Green
 }
 exit 0
+# [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModMain"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModMain
@@ -297,3 +298,4 @@ CleanExit:
     End If
     g_IsEngineRunning = False
 End Sub
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

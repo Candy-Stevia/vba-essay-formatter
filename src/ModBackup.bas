@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModBackup"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModBackup
@@ -163,3 +164,4 @@ Public Sub RestoreTrackChanges(ByVal doc As Document, ByVal wasTracking As Boole
         doc.TrackRevisions = True
     End If
 End Sub
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

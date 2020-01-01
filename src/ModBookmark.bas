@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModBookmark"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModBookmark
@@ -85,3 +86,4 @@ Public Sub CleanExcessBookmarks(ByVal doc As Document, ByVal cntToc As Long, ByV
         ModZoneManager.SafeDelBm doc, toDel(i)
     Next i
 End Sub
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

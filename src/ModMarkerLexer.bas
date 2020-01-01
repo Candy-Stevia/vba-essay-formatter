@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModMarkerLexer"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModMarkerLexer
@@ -284,3 +285,4 @@ Public Sub NormalizeContentBreaks(ByVal doc As Document)
         doc.Range(blankStarts(k), blankStarts(k) + 1).Delete
     Next k
 End Sub
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

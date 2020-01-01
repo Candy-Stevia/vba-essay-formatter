@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModTexAst"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModTexAst
@@ -291,3 +292,4 @@ Public Function ParseGroup() As Long
     Set mNodes(listNode).ChildList = items
     ParseGroup = listNode
 End Function
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

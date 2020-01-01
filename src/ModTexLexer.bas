@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModTexLexer"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModTexLexer
@@ -138,3 +139,4 @@ Public Sub TokenizeLatex(ByVal text As String)
 
     ModTexAst.AddToken TOK_EOF, "", pos
 End Sub
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

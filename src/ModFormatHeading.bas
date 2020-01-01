@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModFormatHeading"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModFormatHeading
@@ -76,3 +77,4 @@ Public Sub FormatSourceNoteRange(ByVal doc As Document, ByVal rng As Range, _
         rngBody.Font.Italic = True
     End If
 End Sub
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

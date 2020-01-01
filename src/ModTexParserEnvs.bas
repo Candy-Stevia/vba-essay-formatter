@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModTexParserEnvs"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModTexParserEnvs
@@ -236,3 +237,4 @@ Public Function ParseDelimitedBlock(ByVal endCmd As String, ByRef outEndChr As S
     Set ModTexAst.mNodes(bodyNode).ChildList = inner
     ParseDelimitedBlock = bodyNode
 End Function
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

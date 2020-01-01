@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModCrossRef"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModCrossRef
@@ -8,16 +9,10 @@ Option Explicit
 ' ==============================================================================
 
 Private Function ResolveLinkColor(ByVal colorId As String) As Long
-    Select Case colorId
-        Case "xref_orange"
-            ResolveLinkColor = RGB(197, 90, 17)
-        Case "xref_red"
-            ResolveLinkColor = RGB(185, 28, 28)
-        Case "xref_black"
-            ResolveLinkColor = -16777216 ' wdColorAutomatic
-        Case Else
-            ResolveLinkColor = RGB(43, 108, 176) ' Soft Academic Blue
-    End Select
+    ResolveLinkColor = RGB(43, 108, 176)
+    If colorId = "xref_orange" Then ResolveLinkColor = RGB(197, 90, 17)
+    If colorId = "xref_red" Then ResolveLinkColor = RGB(185, 28, 28)
+    If colorId = "xref_black" Then ResolveLinkColor = -16777216
 End Function
 
 Private Function CanonicalKeyword(ByVal rawKw As String, ByRef outKind As String) As String
@@ -143,8 +138,8 @@ Private Sub BuildTargetIndex(ByVal doc As Document, ByRef snapshots() As Paragra
     Next i
 End Sub
 
-Private Sub ClearOldCrossRefHyperlinks(ByVal doc As Document, ByVal bodyStartPos As Long)
-    If doc.Hyperlinks.Count = 0 Then Exit Sub
+Private Function ClearOldCrossRefHyperlinks(ByVal doc As Document, ByVal bodyStartPos As Long) As Boolean
+    If doc.Hyperlinks.Count = 0 Then Exit Function
     Dim i As Long, hl As Hyperlink, subA As String, pfx As String
     On Error Resume Next
     For i = doc.Hyperlinks.Count To 1 Step -1
@@ -157,19 +152,19 @@ Private Sub ClearOldCrossRefHyperlinks(ByVal doc As Document, ByVal bodyStartPos
                     hl.Range.Font.Color = -16777216
                     hl.Range.Font.Underline = 0
                     hl.Delete
+                    ClearOldCrossRefHyperlinks = True
                 End If
             End If
         End If
     Next i
     If Err.Number <> 0 Then Err.Clear
-End Sub
+End Function
 
 Private Function IsErroneousTrailingDot(ByVal fullTxt As String, ByVal dotIdx1 As Long) As Boolean
-    ' Returns True only when trailing '.' is followed by space+lowercase or punctuation (, ; : ) ])
     If dotIdx1 > Len(fullTxt) Then Exit Function
     Dim ch As String
     ch = Mid$(fullTxt, dotIdx1, 1)
-    If ch = "," Or ch = ";" Or ch = ":" Or ch = ")" Or ch = "]" Then
+    If InStr(1, ",;:)]", ch) > 0 Then
         IsErroneousTrailingDot = True
         Exit Function
     End If
@@ -177,9 +172,7 @@ Private Function IsErroneousTrailingDot(ByVal fullTxt As String, ByVal dotIdx1 A
         Dim nextCh As String
         nextCh = Mid$(fullTxt, dotIdx1 + 1, 1)
         If Len(nextCh) > 0 And nextCh <> vbCr And nextCh <> vbLf Then
-            If nextCh = LCase$(nextCh) And nextCh <> UCase$(nextCh) Then
-                IsErroneousTrailingDot = True
-            End If
+            If nextCh = LCase$(nextCh) And nextCh <> UCase$(nextCh) Then IsErroneousTrailingDot = True
         End If
     End If
 End Function
@@ -197,19 +190,24 @@ Private Sub UpdateRefZoneState(ByVal cleanTxt As String, ByRef inRefZone As Bool
 End Sub
 
 Private Sub ApplySingleCrossRef(ByVal doc As Document, ByVal matchRng As Range, _
-                                ByVal normText As String, ByVal bmName As String, _
-                                ByVal tipText As String, ByVal linkColor As Long)
+                                ByVal normText As String, ByVal rawSlice As String, _
+                                ByVal bmName As String, ByVal tipText As String, _
+                                ByVal linkColor As Long, ByVal skipGuards As Boolean)
     On Error Resume Next
-    If matchRng.Hyperlinks.Count > 0 Or matchRng.OMaths.Count > 0 Or matchRng.Fields.Count > 0 Then Exit Sub
-    If matchRng.Text <> normText Then
-        matchRng.Text = normText
+    If Not skipGuards Then
+        If matchRng.Hyperlinks.Count > 0 Or matchRng.OMaths.Count > 0 Or matchRng.Fields.Count > 0 Then Exit Sub
+        If matchRng.Text <> normText Then matchRng.Text = normText
+    Else
+        If StrComp(rawSlice, normText, vbBinaryCompare) <> 0 Then matchRng.Text = normText
     End If
     Dim hl As Hyperlink
     Set hl = doc.Hyperlinks.Add(Anchor:=matchRng, Address:="", SubAddress:=bmName, _
                                 ScreenTip:="Ctrl+Click -> " & tipText)
     If Not hl Is Nothing Then
-        hl.Range.Font.Underline = 0
-        hl.Range.Font.Color = linkColor
+        With hl.Range.Font
+            .Underline = 0
+            .Color = linkColor
+        End With
     End If
     If Err.Number <> 0 Then
         ModConstants.g_SilentErrors = ModConstants.g_SilentErrors + 1
@@ -286,14 +284,10 @@ Private Function ResolveMatchTarget(ByVal m As Object, ByVal txt As String, _
 
     outBm = dictBm(key)
     outTip = dictTip(key)
-    Dim leadLen As Long
+    Dim leadLen As Long, matchEnd1 As Long, stripDot As Boolean
     leadLen = Len(m.SubMatches(0))
-    Dim matchEnd1 As Long
     matchEnd1 = m.FirstIndex + m.Length + 1
-    Dim stripDot As Boolean
-    If rawDot = "." Then
-        stripDot = IsErroneousTrailingDot(txt, matchEnd1)
-    End If
+    If rawDot = "." Then stripDot = IsErroneousTrailingDot(txt, matchEnd1)
 
     If Len(rawId) > 0 Then
         Dim idOut As String
@@ -315,81 +309,86 @@ Public Sub ApplyCrossReferences(ByVal doc As Document, ByRef markers As MarkerLo
     Dim startP As Long
     startP = markers.ContentStartParaIndex + 1
     If startP > doc.Paragraphs.Count Then Exit Sub
-
-    Dim bodyStartPos As Long
-    bodyStartPos = doc.Paragraphs(startP).Range.Start
-    ClearOldCrossRefHyperlinks doc, bodyStartPos
+    Dim bodyStartPos As Long, didClear As Boolean
+    If startP <= totalCount Then bodyStartPos = snapshots(startP).RangeStart Else bodyStartPos = doc.Paragraphs(startP).Range.Start
+    didClear = ClearOldCrossRefHyperlinks(doc, bodyStartPos)
     If colorId = "xref_off" Then Exit Sub
-
     Dim dictBm As Object, dictTip As Object
     Set dictBm = CreateObject("Scripting.Dictionary")
     Set dictTip = CreateObject("Scripting.Dictionary")
     BuildTargetIndex doc, snapshots, totalCount, dictBm, dictTip
     If dictBm.Count = 0 Then Exit Sub
-
-    Dim linkColor As Long
+    Dim refFlags() As Boolean, inRefZone As Boolean, sIdx As Long, tType As Long
+    ReDim refFlags(1 To totalCount)
+    For sIdx = 1 To totalCount
+        If snapshots(sIdx).ElementType = ElementTypeLevel1 Then UpdateRefZoneState snapshots(sIdx).CleanText, inRefZone
+        refFlags(sIdx) = inRefZone
+    Next sIdx
+    Dim linkColor As Long, docHasMath As Boolean, reMain As Object
     linkColor = ResolveLinkColor(colorId)
-
-    Dim reMain As Object
+    docHasMath = (doc.OMaths.Count > 0)
     Set reMain = CreateObject("VBScript.RegExp")
     reMain.IgnoreCase = True
     reMain.Global = True
     reMain.Pattern = BuildCrossRefPattern()
-
-    Dim sIdx As Long, tType As Long, pRng As Range, txt As String, pStart As Long, pEnd As Long
+    Dim pRng As Range, txt As String, pStart As Long, pEnd As Long
     Dim matches As Object, mIdx As Long, m As Object
     Dim bmName As String, tipText As String, normStr As String, spanLen As Long
-    Dim inRefZone As Boolean, canDirectOffset As Boolean, mRng As Range, rawSub As String
-    inRefZone = False
-
-    For sIdx = 1 To totalCount
-        If snapshots(sIdx).ParaIndex >= startP Then
+    Dim canDirectOffset As Boolean, mRng As Range, rawSub As String
+    For sIdx = totalCount To 1 Step -1
+        If snapshots(sIdx).ParaIndex >= startP And (Not refFlags(sIdx)) And (Not snapshots(sIdx).IsExcluded) Then
             tType = snapshots(sIdx).ElementType
-            If tType = ElementTypeLevel1 Then
-                UpdateRefZoneState snapshots(sIdx).CleanText, inRefZone
-            ElseIf (Not inRefZone) And (Not snapshots(sIdx).IsExcluded) Then
-                If tType = ElementTypeNormalParagraph Or tType = ElementTypeSourceNote Or _
-                   tType = ElementTypeTableCell Or tType = ElementTypeUnknown Then
-                    If Len(snapshots(sIdx).CleanText) > 5 Then
-                        If reMain.Test(snapshots(sIdx).CleanText) Then
+            If tType = ElementTypeNormalParagraph Or tType = ElementTypeSourceNote Or _
+               tType = ElementTypeTableCell Or tType = ElementTypeUnknown Then
+                If Len(snapshots(sIdx).CleanText) > 5 Then
+                    If reMain.Test(snapshots(sIdx).CleanText) Then
+                        If didClear Then
                             Set pRng = doc.Paragraphs(snapshots(sIdx).ParaIndex).Range
                             txt = pRng.Text
                             pStart = pRng.Start
                             pEnd = pRng.End
-                            canDirectOffset = ((pEnd - pStart) = Len(txt)) And _
-                                              (pRng.OMaths.Count = 0) And (pRng.Fields.Count = 0)
-                            Set matches = reMain.Execute(txt)
-                            For mIdx = matches.Count - 1 To 0 Step -1
-                                Set m = matches(mIdx)
-                                If ResolveMatchTarget(m, txt, dictBm, dictTip, bmName, tipText, normStr, spanLen) Then
-                                    If canDirectOffset Then
-                                        Set mRng = doc.Range(pStart + m.FirstIndex + Len(m.SubMatches(0)), _
-                                                             pStart + m.FirstIndex + Len(m.SubMatches(0)) + spanLen)
-                                        ApplySingleCrossRef doc, mRng, normStr, bmName, tipText, linkColor
-                                    Else
-                                        rawSub = Mid$(txt, m.FirstIndex + 1 + Len(m.SubMatches(0)), spanLen)
-                                        Set mRng = pRng.Duplicate
-                                        With mRng.Find
-                                            .ClearFormatting
-                                            .Text = rawSub
-                                            .MatchWildcards = False
-                                            .MatchCase = False
-                                            .Forward = True
-                                            .Wrap = 0
-                                            Do While .Execute
-                                                If mRng.OMaths.Count = 0 And mRng.Fields.Count = 0 And mRng.Hyperlinks.Count = 0 Then
-                                                    ApplySingleCrossRef doc, mRng, normStr, bmName, tipText, linkColor
-                                                End If
-                                                mRng.Collapse 0
-                                            Loop
-                                        End With
-                                    End If
-                                End If
-                            Next mIdx
+                        Else
+                            txt = snapshots(sIdx).RawText
+                            pStart = snapshots(sIdx).RangeStart
+                            pEnd = snapshots(sIdx).RangeEnd
                         End If
+                        canDirectOffset = ((pEnd - pStart) = Len(txt))
+                        If canDirectOffset And docHasMath Then
+                            If doc.Range(pStart, pEnd).OMaths.Count > 0 Then canDirectOffset = False
+                        End If
+                        Set matches = reMain.Execute(txt)
+                        For mIdx = matches.Count - 1 To 0 Step -1
+                            Set m = matches(mIdx)
+                            If ResolveMatchTarget(m, txt, dictBm, dictTip, bmName, tipText, normStr, spanLen) Then
+                                rawSub = Mid$(txt, m.FirstIndex + 1 + Len(m.SubMatches(0)), spanLen)
+                                If canDirectOffset Then
+                                    Set mRng = doc.Range(pStart + m.FirstIndex + Len(m.SubMatches(0)), _
+                                                         pStart + m.FirstIndex + Len(m.SubMatches(0)) + spanLen)
+                                    ApplySingleCrossRef doc, mRng, normStr, rawSub, bmName, tipText, linkColor, True
+                                Else
+                                    If Not didClear Then Set pRng = doc.Range(pStart, pEnd)
+                                    Set mRng = pRng.Duplicate
+                                    With mRng.Find
+                                        .ClearFormatting
+                                        .Text = rawSub
+                                        .MatchWildcards = False
+                                        .MatchCase = False
+                                        .Forward = True
+                                        .Wrap = 0
+                                        Do While .Execute
+                                            If mRng.OMaths.Count = 0 And mRng.Fields.Count = 0 And mRng.Hyperlinks.Count = 0 Then
+                                                ApplySingleCrossRef doc, mRng, normStr, rawSub, bmName, tipText, linkColor, False
+                                            End If
+                                            mRng.Collapse 0
+                                        Loop
+                                    End With
+                                End If
+                            End If
+                        Next mIdx
                     End If
                 End If
             End If
         End If
     Next sIdx
 End Sub
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

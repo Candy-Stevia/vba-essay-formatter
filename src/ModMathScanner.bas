@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModMathScanner"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModMathScanner
@@ -374,3 +375,4 @@ End Function
 Public Sub FindDollarPairsInPara(ByVal doc As Document, ByVal p As Paragraph, ByRef outStarts() As Long, ByRef outEnds() As Long, ByRef outPairCount As Long)
     ModMathHelpers.FindDollarPairsDom doc, p, outStarts, outEnds, outPairCount
 End Sub
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

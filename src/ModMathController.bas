@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModMathController"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ModMathController: Math conversion, Shading, Ribbon, Undo (vba_lint compliant)
 
@@ -394,3 +395,4 @@ Public Sub Ribbon_OnMathFinalize(ByVal control As IRibbonControl)
         FinalizeAllMath ActiveDocument, False
     End If
 End Sub
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

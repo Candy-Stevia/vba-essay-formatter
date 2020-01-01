@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModFormatBatch"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModFormatBatch
@@ -77,3 +78,4 @@ Public Sub FormatNormalBatch(ByVal doc As Document, ByVal rStart As Long, _
         g_SingleParaCount = g_SingleParaCount + 1
     End If
 End Sub
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

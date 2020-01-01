@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModMathInline"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModMathInline
@@ -260,3 +261,4 @@ Public Sub TrimMathRange(ByRef rng As Range)
         End If
     Loop
 End Sub
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModTexParserCmds"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModTexParserCmds
@@ -331,3 +332,4 @@ Public Function ParseCommand(ByVal cmd As String) As Long
     ModTexAst.SetAmbiguous True
     ParseCommand = 0
 End Function
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

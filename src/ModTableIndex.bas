@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModTableIndex"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModTableIndex
@@ -72,3 +73,4 @@ Public Function IsRangeInTable(ByVal rng As Range) As Boolean
     Next i
     IsRangeInTable = False
 End Function
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

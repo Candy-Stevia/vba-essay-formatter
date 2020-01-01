@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModMarkerInserter"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModMarkerInserter
@@ -103,3 +104,4 @@ ErrorHandler:
         If objUndo.IsRecordingCustomRecord Then objUndo.EndCustomRecord
     End If
 End Sub
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

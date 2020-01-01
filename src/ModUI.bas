@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModUI"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModUI
@@ -186,3 +187,4 @@ Public Sub ShowQuickUpdateReport(ByVal tocFound As Boolean, ByVal tocItems As Lo
     title = ModConstants.Uni("Quick Update Done (C\u1eadp nh\u1eadt xong)")
     MsgBoxW msg, vbInformation, title
 End Sub
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

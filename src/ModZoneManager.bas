@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModZoneManager"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModZoneManager
@@ -382,3 +383,4 @@ Public Function DiscoverAndPrepareQuickZones(ByVal doc As Document, ByRef marker
     SafeDelBm doc, BM_SYS_GENERATED_BLOCK
     DiscoverAndPrepareQuickZones = True
 End Function
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

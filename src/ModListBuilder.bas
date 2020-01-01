@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModListBuilder"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModListBuilder
@@ -346,3 +347,4 @@ ErrorHandler:
     If weStartedUndo Then If Not objUndo Is Nothing Then If objUndo.IsRecordingCustomRecord Then objUndo.EndCustomRecord
     BuildTableOfContents = False
 End Function
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

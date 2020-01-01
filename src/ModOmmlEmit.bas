@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModOmmlEmit"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModOmmlEmit
@@ -269,3 +270,4 @@ Public Function TranspileLatexForTest(ByVal rawLatex As String, ByVal isBlock As
         TranspileLatexForTest = "OK|" & eqTag & "|" & xml
     End If
 End Function
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

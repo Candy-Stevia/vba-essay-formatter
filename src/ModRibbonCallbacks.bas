@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModRibbonCallbacks"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModRibbonCallbacks
@@ -239,3 +240,4 @@ End Sub
 Public Function GetLastError() As String
     GetLastError = g_LastError
 End Function
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

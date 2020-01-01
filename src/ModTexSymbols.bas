@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModTexSymbols"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModTexSymbols
@@ -366,3 +367,4 @@ Public Function EscapeXml(ByVal s As String) As String
     res = Replace(res, "'", "&apos;")
     EscapeXml = res
 End Function
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

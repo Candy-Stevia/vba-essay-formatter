@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModConstants"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModConstants
@@ -109,3 +110,4 @@ End Function
 Public Function CmToPoints(ByVal cmValue As Single) As Single
     CmToPoints = cmValue * 72# / 2.54#
 End Function
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

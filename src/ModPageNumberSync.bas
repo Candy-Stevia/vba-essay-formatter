@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModPageNumberSync"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModPageNumberSync
@@ -284,3 +285,4 @@ ErrHandler:
     ModConstants.g_SilentErrors = ModConstants.g_SilentErrors + 1
     ModRibbonCallbacks.g_LastError = "SyncAllListPages Error " & Err.Number & ": " & Err.Description
 End Function
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

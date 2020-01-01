@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModLatex"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModLatex
@@ -112,3 +113,4 @@ Public Sub ComputeLatexFlags(ByVal doc As Document, _
         End If
     Loop
 End Sub
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

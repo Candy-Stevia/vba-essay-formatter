@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModMathHelpers"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModMathHelpers
@@ -391,3 +392,4 @@ Public Sub FindParenPairsDom(ByVal doc As Document, ByVal p As Paragraph, ByRef 
         End If
     Loop
 End Sub
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

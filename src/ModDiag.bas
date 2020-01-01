@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModDiag"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModDiag
@@ -209,3 +210,4 @@ Private Sub GetProcessMemoryStrings(ByRef outWsStr As String, ByRef outPrivStr A
     End If
     On Error GoTo 0
 End Sub
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModScanner"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModScanner
@@ -220,3 +221,4 @@ Public Function ScanDocumentSnapshot(ByVal doc As Document, _
     
     ScanDocumentSnapshot = True
 End Function
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

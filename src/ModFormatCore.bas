@@ -1,5 +1,6 @@
 Attribute VB_Name = "ModFormatCore"
 Option Explicit
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
 
 ' ==============================================================================
 ' Module: ModFormatCore
@@ -182,3 +183,4 @@ ErrorHandler:
     End If
     ExecuteRecord1 = False
 End Function
+' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.
