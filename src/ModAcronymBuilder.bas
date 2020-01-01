@@ -85,11 +85,12 @@ Private Sub SortAndDedupeAcronyms(ByRef rawItems() As PatchAcronymItem, ByVal ra
     Dim dIdx As Object, i As Long, k As String, slot As Long
     Dim j As Long, tmp As PatchAcronymItem
     Set dIdx = CreateObject("Scripting.Dictionary")
+    dIdx.CompareMode = 1
     outCount = 0
     outHasCol3 = False
     ReDim outItems(1 To rawCount)
     For i = 1 To rawCount
-        k = LCase$(Trim$(rawItems(i).Abbr))
+        k = Trim$(rawItems(i).Abbr)
         If Len(k) > 0 And Len(Trim$(rawItems(i).FullForm)) > 0 Then
             If dIdx.Exists(k) Then
                 slot = CLng(dIdx(k))
@@ -119,12 +120,15 @@ Private Sub SortAndDedupeAcronyms(ByRef rawItems() As PatchAcronymItem, ByVal ra
 End Sub
 
 Private Sub FormatLoaHeadingPara(ByVal rng As Range, ByVal fontName As String, ByVal fontSize As Single)
+    ModCustomProfile.LoadStyleProfile rng.Document
     rng.HighlightColorIndex = 0
     rng.Font.Name = fontName
     rng.Font.Size = fontSize
     rng.Font.Bold = True
     rng.Font.Italic = False
-    rng.Case = 1
+    If Not ModCustomProfile.IsL1UpperDisabled() Then
+        rng.Case = 1
+    End If
     rng.ParagraphFormat.Alignment = 1
     rng.ParagraphFormat.FirstLineIndent = 0#
     rng.ParagraphFormat.LeftIndent = 0#
@@ -132,6 +136,7 @@ Private Sub FormatLoaHeadingPara(ByVal rng As Range, ByVal fontName As String, B
     rng.ParagraphFormat.SpaceAfter = 6#
     rng.ParagraphFormat.KeepWithNext = True
     ModFormatSingle.SafeSetOutlineLevel rng, 1
+    ModCustomProfile.ApplyCustomStyleOverrides rng.Document, rng, ElementTypeLevel1, False
 End Sub
 
 Private Sub ApplyCol3NoteWithBoldLabels(ByVal cellRng As Range, ByVal noteText As String, _

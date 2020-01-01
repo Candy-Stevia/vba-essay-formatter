@@ -38,6 +38,17 @@ Public Type PatchAcronymItem
     LineNo As Long
 End Type
 
+Public Type PatchStyleItem
+    RawLine As String
+    LineNo As Long
+End Type
+
+Public Type PatchTagItem
+    TagType As String
+    CtxText As String
+    LineNo As Long
+End Type
+
 Public Type PatchPayload
     Refs() As PatchRefItem
     RefCount As Long
@@ -54,6 +65,12 @@ Public Type PatchPayload
     Acronyms() As PatchAcronymItem
     AcronymCount As Long
     SkippedAcronyms As Long
+    Styles() As PatchStyleItem
+    StyleCount As Long
+    SkippedStyles As Long
+    Tags() As PatchTagItem
+    TagCount As Long
+    SkippedTags As Long
     HasHeader As Boolean
     HasFooter As Boolean
 End Type
@@ -64,6 +81,8 @@ Private Sub EnsurePatchCapacities(ByRef p As PatchPayload)
     ReDim p.Fixes(1 To 64)
     ReDim p.Structs(1 To 64)
     ReDim p.Acronyms(1 To 64)
+    ReDim p.Styles(1 To 32)
+    ReDim p.Tags(1 To 32)
 End Sub
 
 Private Sub AppendRef(ByRef p As PatchPayload, ByVal keyId As String, ByVal prefixTxt As String, ByVal ln As Long)
@@ -98,6 +117,19 @@ Private Sub AppendAcronym(ByRef p As PatchPayload, ByRef item As PatchAcronymIte
     p.Acronyms(p.AcronymCount) = item
 End Sub
 
+Private Sub AppendStyle(ByRef p As PatchPayload, ByVal rawLn As String, ByVal ln As Long)
+    p.StyleCount = p.StyleCount + 1
+    If p.StyleCount > UBound(p.Styles) Then ReDim Preserve p.Styles(1 To p.StyleCount + 32)
+    p.Styles(p.StyleCount).RawLine = rawLn
+    p.Styles(p.StyleCount).LineNo = ln
+End Sub
+
+Private Sub AppendTag(ByRef p As PatchPayload, ByRef item As PatchTagItem)
+    p.TagCount = p.TagCount + 1
+    If p.TagCount > UBound(p.Tags) Then ReDim Preserve p.Tags(1 To p.TagCount + 32)
+    p.Tags(p.TagCount) = item
+End Sub
+
 Private Function ExtractFieldValue(ByVal lineTxt As String, ByVal prefixColon As String) As Boolean
     Dim pLen As Long
     pLen = Len(prefixColon)
@@ -107,7 +139,8 @@ Private Function ExtractFieldValue(ByVal lineTxt As String, ByVal prefixColon As
 End Function
 
 Private Sub FlushOpenBlock(ByRef curMode As String, ByRef cItem As PatchCiteItem, ByRef fItem As PatchFixItem, _
-                           ByRef hasOpenCite As Boolean, ByRef hasOpenFix As Boolean, ByRef outPatch As PatchPayload)
+                           ByRef tItem As PatchTagItem, ByRef hasOpenCite As Boolean, _
+                           ByRef hasOpenFix As Boolean, ByRef hasOpenTag As Boolean, ByRef outPatch As PatchPayload)
     If hasOpenCite Then
         If Len(cItem.RefKey) > 0 Or Len(cItem.CtxText) > 0 Or Len(cItem.FindText) > 0 Or cItem.HasFix Then
             If Len(cItem.RefKey) > 0 And Len(cItem.CtxText) > 0 And Len(cItem.FindText) > 0 Then
@@ -134,6 +167,17 @@ Private Sub FlushOpenBlock(ByRef curMode As String, ByRef cItem As PatchCiteItem
         Dim emptyF As PatchFixItem
         fItem = emptyF
         hasOpenFix = False
+    ElseIf hasOpenTag Then
+        If Len(tItem.TagType) > 0 Or Len(tItem.CtxText) > 0 Then
+            If Len(tItem.TagType) > 0 And Len(tItem.CtxText) > 0 Then
+                AppendTag outPatch, tItem
+            Else
+                outPatch.SkippedTags = outPatch.SkippedTags + 1
+            End If
+        End If
+        Dim emptyT As PatchTagItem
+        tItem = emptyT
+        hasOpenTag = False
     End If
 End Sub
 
@@ -248,8 +292,8 @@ Public Function ParseAiPatch(ByVal rawInput As String, ByRef outPatch As PatchPa
     EnsurePatchCapacities outPatch
     If Len(Trim$(rawInput)) = 0 Then Exit Function
     Dim lines() As String, idx As Long, trimmed As String, up As String
-    Dim curMode As String, started As Boolean, hasOpenCite As Boolean, hasOpenFix As Boolean
-    Dim curCite As PatchCiteItem, curFix As PatchFixItem
+    Dim curMode As String, started As Boolean, hasOpenCite As Boolean, hasOpenFix As Boolean, hasOpenTag As Boolean
+    Dim curCite As PatchCiteItem, curFix As PatchFixItem, curTag As PatchTagItem
     StripFenceAndNormalizeLines rawInput, lines
     curMode = ""
     For idx = LBound(lines) To UBound(lines)
@@ -262,12 +306,12 @@ Public Function ParseAiPatch(ByVal rawInput As String, ByRef outPatch As PatchPa
             GoTo NextLn
         End If
         If up = "=== END ===" Then
-            FlushOpenBlock curMode, curCite, curFix, hasOpenCite, hasOpenFix, outPatch
+            FlushOpenBlock curMode, curCite, curFix, curTag, hasOpenCite, hasOpenFix, hasOpenTag, outPatch
             outPatch.HasFooter = True
             Exit For
         End If
-        If up = "@REFS" Or up = "@CITE" Or up = "@FIX" Or up = "@STRUCT" Or up = "@ACRONYMS" Then
-            FlushOpenBlock curMode, curCite, curFix, hasOpenCite, hasOpenFix, outPatch
+        If up = "@REFS" Or up = "@CITE" Or up = "@FIX" Or up = "@STRUCT" Or up = "@ACRONYMS" Or up = "@STYLE" Or up = "@TAG" Then
+            FlushOpenBlock curMode, curCite, curFix, curTag, hasOpenCite, hasOpenFix, hasOpenTag, outPatch
             started = True
             curMode = up
             If curMode = "@CITE" Then
@@ -276,35 +320,54 @@ Public Function ParseAiPatch(ByVal rawInput As String, ByRef outPatch As PatchPa
             ElseIf curMode = "@FIX" Or curMode = "@STRUCT" Then
                 hasOpenFix = True
                 curFix.LineNo = idx + 1
+            ElseIf curMode = "@TAG" Then
+                hasOpenTag = True
+                curTag.LineNo = idx + 1
             End If
             GoTo NextLn
         End If
         If Not started Then GoTo NextLn
         If Len(trimmed) = 0 Then
-            FlushOpenBlock curMode, curCite, curFix, hasOpenCite, hasOpenFix, outPatch
+            FlushOpenBlock curMode, curCite, curFix, curTag, hasOpenCite, hasOpenFix, hasOpenTag, outPatch
             GoTo NextLn
         End If
         If curMode = "@REFS" Then
             ParseRefLine trimmed, idx + 1, outPatch
         ElseIf curMode = "@ACRONYMS" Then
             ParseAcronymLine trimmed, idx + 1, outPatch
+        ElseIf curMode = "@STYLE" Then
+            AppendStyle outPatch, trimmed, idx + 1
+        ElseIf curMode = "@TAG" Then
+            If (ExtractFieldValue(trimmed, "TYPE:") And Len(curTag.TagType) > 0) Or _
+               (ExtractFieldValue(trimmed, "CTX:") And Len(curTag.CtxText) > 0) Then
+                FlushOpenBlock curMode, curCite, curFix, curTag, hasOpenCite, hasOpenFix, hasOpenTag, outPatch
+                hasOpenTag = True
+            End If
+            hasOpenTag = True
+            If curTag.LineNo = 0 Then curTag.LineNo = idx + 1
+            If ExtractFieldValue(trimmed, "TYPE:") Then
+                curTag.TagType = UCase$(Trim$(Mid$(trimmed, 6)))
+            ElseIf ExtractFieldValue(trimmed, "CTX:") Then
+                curTag.CtxText = Trim$(Mid$(trimmed, 5))
+            End If
         ElseIf curMode = "@CITE" Then
             If ExtractFieldValue(trimmed, "REF:") And Len(curCite.RefKey) > 0 Then
-                FlushOpenBlock curMode, curCite, curFix, hasOpenCite, hasOpenFix, outPatch
+                FlushOpenBlock curMode, curCite, curFix, curTag, hasOpenCite, hasOpenFix, hasOpenTag, outPatch
                 hasOpenCite = True
             End If
             ParseCiteField trimmed, idx + 1, curCite, hasOpenCite
         ElseIf curMode = "@FIX" Or curMode = "@STRUCT" Then
             If ExtractFieldValue(trimmed, "CTX:") And Len(curFix.CtxText) > 0 Then
-                FlushOpenBlock curMode, curCite, curFix, hasOpenCite, hasOpenFix, outPatch
+                FlushOpenBlock curMode, curCite, curFix, curTag, hasOpenCite, hasOpenFix, hasOpenTag, outPatch
                 hasOpenFix = True
             End If
             ParseFixField trimmed, idx + 1, curFix, hasOpenFix
         End If
 NextLn:
     Next idx
-    FlushOpenBlock curMode, curCite, curFix, hasOpenCite, hasOpenFix, outPatch
+    FlushOpenBlock curMode, curCite, curFix, curTag, hasOpenCite, hasOpenFix, hasOpenTag, outPatch
     ParseAiPatch = (outPatch.HasHeader Or outPatch.RefCount > 0 Or outPatch.CiteCount > 0 Or _
-                    outPatch.FixCount > 0 Or outPatch.StructCount > 0 Or outPatch.AcronymCount > 0)
+                    outPatch.FixCount > 0 Or outPatch.StructCount > 0 Or outPatch.AcronymCount > 0 Or _
+                    outPatch.StyleCount > 0 Or outPatch.TagCount > 0)
 End Function
 ' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

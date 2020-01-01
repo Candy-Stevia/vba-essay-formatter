@@ -148,6 +148,11 @@ Public Function ScanDocumentSnapshot(ByVal doc As Document, _
     End If
     ReDim outSnapshots(1 To totalParas)
     ModTableIndex.BuildTableIndex doc
+    ModTableIndex.BuildListIndex doc
+    ModTableIndex.BuildOMathIndex doc
+    ModCustomProfile.LoadTagCache doc
+    Dim hasTags As Boolean
+    hasTags = ModCustomProfile.HasActiveTags()
     
     Dim latexFlags() As Boolean
     ModLatex.ComputeLatexFlags doc, latexFlags, outLatexWarningCount
@@ -246,20 +251,36 @@ Public Function ScanDocumentSnapshot(ByVal doc As Document, _
             Dim isMathBlock As Boolean
             isMathBlock = False
             If docHasMath Then
-                isMathBlock = IsMathBlockPara(rng, raw)
+                If ModTableIndex.HasOMathInSpan(outSnapshots(i).RangeStart, outSnapshots(i).RangeEnd) Then
+                    isMathBlock = IsMathBlockPara(rng, raw)
+                End If
             End If
             
             isShortHeading = (cleanLen > 0 And cleanLen <= MAX_HEADING_LEN)
             
+            Dim tagCode As Long, inTblPos As Boolean
+            tagCode = 0
+            If hasTags Then tagCode = ModCustomProfile.LookupTagForRange(outSnapshots(i).RangeStart, outSnapshots(i).RangeEnd)
+            inTblPos = ModTableIndex.IsPosInTable(outSnapshots(i).RangeStart)
             If isMathBlock Then
                 outSnapshots(i).IsExcluded = True
                 outSnapshots(i).ElementType = ElementTypeWordMath
-            ElseIf rng.ListFormat.ListType <> 0 Then
-                outSnapshots(i).IsExcluded = True
-                outSnapshots(i).ElementType = ElementTypeList
             ElseIf cleanLen > 0 And reMarker.Test(clean) Then
                 outSnapshots(i).IsExcluded = True
-            ElseIf ModTableIndex.IsRangeInTable(rng) Then
+            ElseIf tagCode > 0 Then
+                outSnapshots(i).ElementType = tagCode
+            ElseIf tagCode = TAG_CODE_SKIP Then
+                If inTblPos Then
+                    If inContentZone Or inPostZone Then outSnapshots(i).ElementType = ElementTypeTableCell
+                ElseIf inContentZone Then
+                    outSnapshots(i).ElementType = ElementTypeNormalParagraph
+                Else
+                    outSnapshots(i).ElementType = ElementTypeUnknown
+                End If
+            ElseIf ModTableIndex.IsPosInList(outSnapshots(i).RangeStart) Then
+                outSnapshots(i).IsExcluded = True
+                outSnapshots(i).ElementType = ElementTypeList
+            ElseIf inTblPos Then
                 Dim isLayFig As Boolean
                 isLayFig = False
                 If isShortHeading Then

@@ -65,7 +65,7 @@ Private Sub EnsureScanRegexes(ByRef reParen As Object, ByRef reSeg As Object, By
 
     Set reSeg = CreateObject("VBScript.RegExp")
     reSeg.IgnoreCase = True
-    reSeg.Pattern = "^([^,;()]{2,110}?)\s*,\s*" & yrTok & locTok & "$"
+    reSeg.Pattern = "^([^,;()]{2,110}?)\s*,\s*(" & yrTok & "(?:\s*,\s*(?:" & yrTok & "|[a-z](?![A-Za-z])))*)" & locTok & "$"
 
     Set reNarrYr = CreateObject("VBScript.RegExp")
     reNarrYr.IgnoreCase = True
@@ -81,9 +81,19 @@ Private Sub EnsureScanRegexes(ByRef reParen As Object, ByRef reSeg As Object, By
     reStopWord.Pattern = ModConstants.Uni("^(?:n\u0103m|th\u00e1ng|ng\u00e0y|giai\s+\u0111o\u1ea1n|b\u1ea3ng|h\u00ecnh|bi\u1ec3u\s+\u0111\u1ed3|s\u01a1\s+\u0111\u1ed3|\u0111\u1ed3\s+th\u1ecb|ch\u01b0\u01a1ng|m\u1ee5c|ph\u1ea7n|ph\u1ee5\s+l\u1ee5c|ph\u01b0\u01a1ng\s+tr\u00ecnh|c\u00f4ng\s+th\u1ee9c|k\u1ebft\s+qu\u1ea3|d\u1eef\s+li\u1ec7u|phi\u00ean\s+b\u1ea3n|l\u1ea7n|t\u1eadp|s\u1ed1|quy\u1ec3n|trang|year|years|table|figure|chapter|section|appendix|equation|formula|version|phase|step)$")
 End Sub
 
+Private Function CountYearItemsInList(ByVal yrList As String) As Long
+    Dim parts() As String, p As Long, t As String
+    parts = Split(yrList, ",")
+    For p = LBound(parts) To UBound(parts)
+        t = Trim$(parts(p))
+        If Len(t) > 0 Then CountYearItemsInList = CountYearItemsInList + 1
+    Next p
+    If CountYearItemsInList < 1 Then CountYearItemsInList = 1
+End Function
+
 Private Function CountParenSegs(ByVal innerTxt As String, ByVal reSeg As Object, ByVal reIntro As Object, _
                                 ByVal reNonCite As Object) As Long
-    Dim segs() As String, k As Long, seg As String, ms As Object, authPart As String
+    Dim segs() As String, k As Long, seg As String, ms As Object, authPart As String, yrPart As String
     segs = Split(innerTxt, ";")
     For k = LBound(segs) To UBound(segs)
         seg = Trim$(segs(k))
@@ -92,17 +102,39 @@ Private Function CountParenSegs(ByVal innerTxt As String, ByVal reSeg As Object,
             Set ms = reSeg.Execute(seg)
             If ms.Count = 1 Then
                 authPart = Trim$(ms(0).SubMatches(0))
-                If IsUpperLetterStart(authPart) Then CountParenSegs = CountParenSegs + 1
+                yrPart = Trim$(ms(0).SubMatches(1))
+                If IsUpperLetterStart(authPart) Then CountParenSegs = CountParenSegs + CountYearItemsInList(yrPart)
             End If
         End If
     Next k
 End Function
 
+Private Function IsViInstitutionPrefix(ByVal w As String) As Boolean
+    Static dInst As Object
+    If dInst Is Nothing Then
+        Set dInst = CreateObject("Scripting.Dictionary")
+        dInst.CompareMode = 1
+        Dim arr As Variant, k As Long
+        arr = Array(ModConstants.Uni("B\u1ed9"), ModConstants.Uni("Ch\u00ednh"), ModConstants.Uni("Qu\u1ed1c"), _
+                    ModConstants.Uni("Th\u1ee7"), ModConstants.Uni("Ch\u1ee7"), ModConstants.Uni("T\u00f2a"), _
+                    ModConstants.Uni("Vi\u1ec7n"), ModConstants.Uni("Ng\u00e2n"), ModConstants.Uni("T\u1ed5ng"), _
+                    ModConstants.Uni("C\u1ee5c"), ModConstants.Uni("S\u1edf"), ModConstants.Uni("\u1ee6y"), _
+                    ModConstants.Uni("H\u1ed9i"), ModConstants.Uni("Li\u00ean"), ModConstants.Uni("T\u1ed5"), _
+                    ModConstants.Uni("Qu\u1ef9"), ModConstants.Uni("Hi\u1ec7p"), ModConstants.Uni("C\u00f4ng"), _
+                    ModConstants.Uni("T\u1eadp"), ModConstants.Uni("Tr\u01b0\u1eddng"), ModConstants.Uni("\u0110\u1ea1i"), _
+                    "Ban", ModConstants.Uni("Ph\u00f2ng"), "Trung", "Chi", "Thanh", ModConstants.Uni("Ki\u1ec3m"), "Kho")
+        For k = LBound(arr) To UBound(arr)
+            dInst(CStr(arr(k))) = True
+        Next k
+    End If
+    IsViInstitutionPrefix = dInst.Exists(Trim$(w))
+End Function
+
 Private Function HasValidAuthorBeforeParen(ByVal txt As String, ByVal parenZeroIdx As Long, _
                                            ByVal reEtAlEnd As Object, ByVal reStopWord As Object) As Boolean
     If parenZeroIdx <= 1 Then Exit Function
-    Dim leftSlice As String, hadEtAl As Boolean, i As Long, ch As String
-    Dim words() As String, wIdx As Long, w As String, upperCount As Long
+    Dim leftSlice As String, hadEtAl As Boolean, i As Long, ch As String, nextCh As String
+    Dim words() As String, wIdx As Long, w As String, checked As Long, candW As String
     leftSlice = Left$(txt, parenZeroIdx)
     If reEtAlEnd.Test(leftSlice) Then
         hadEtAl = True
@@ -110,11 +142,21 @@ Private Function HasValidAuthorBeforeParen(ByVal txt As String, ByVal parenZeroI
     End If
     leftSlice = Trim$(leftSlice)
     If Len(leftSlice) = 0 Then Exit Function
+    If Right$(leftSlice, 1) = "." Then leftSlice = Trim$(Left$(leftSlice, Len(leftSlice) - 1))
+    If Len(leftSlice) = 0 Then Exit Function
     For i = Len(leftSlice) To 1 Step -1
         ch = Mid$(leftSlice, i, 1)
-        If ch = "." Or ch = "?" Or ch = "!" Or ch = ";" Or ch = "(" Or ch = ")" Or ch = ":" Then
+        If ch = "?" Or ch = "!" Or ch = ";" Or ch = "(" Or ch = ")" Or ch = ":" Then
             leftSlice = Trim$(Mid$(leftSlice, i + 1))
             Exit For
+        ElseIf ch = "." And i < Len(leftSlice) Then
+            nextCh = Mid$(leftSlice, i + 1, 1)
+            If nextCh = " " Then
+                If i < 3 Or Mid$(leftSlice, i - 2, 1) <> " " Then
+                    leftSlice = Trim$(Mid$(leftSlice, i + 1))
+                    Exit For
+                End If
+            End If
         End If
     Next i
     If Len(leftSlice) = 0 Then Exit Function
@@ -127,7 +169,24 @@ Private Function HasValidAuthorBeforeParen(ByVal txt As String, ByVal parenZeroI
         wIdx = wIdx - 1
     Loop
     If Len(w) = 0 Or reStopWord.Test(w) Then Exit Function
-    HasValidAuthorBeforeParen = IsUpperLetterStart(w) Or hadEtAl
+    If IsUpperLetterStart(w) Or hadEtAl Then
+        HasValidAuthorBeforeParen = True
+        Exit Function
+    End If
+    checked = 1
+    wIdx = wIdx - 1
+    Do While wIdx >= LBound(words) And checked < 5
+        If Right$(Trim$(words(wIdx)), 1) = "," Then Exit Do
+        candW = Trim$(Replace(Replace(Replace(words(wIdx), ",", ""), "[", ""), "]", ""))
+        If Len(candW) > 0 Then
+            checked = checked + 1
+            If IsUpperLetterStart(candW) And IsViInstitutionPrefix(candW) Then
+                HasValidAuthorBeforeParen = True
+                Exit Function
+            End If
+        End If
+        wIdx = wIdx - 1
+    Loop
 End Function
 
 Private Sub ScanParaCitations(ByVal normTxt As String, ByVal reParen As Object, ByVal reSeg As Object, _

@@ -36,9 +36,9 @@ Private Sub CapCharAtTextPos(ByVal doc As Document, ByVal rng As Range, ByVal tx
     
     Dim fRng As Range
     Set fRng = rng.Duplicate
-    fRng.Find.ClearFormatting
-    fRng.Find.Replacement.ClearFormatting
-    If fRng.Find.Execute(FindText:=snippet, MatchWildcards:=False, Format:=False, Wrap:=0) Then
+    ModMathHelpers.InitDomFind fRng.Find, Replace(snippet, "^", "^^")
+    fRng.Find.MatchCase = False
+    If fRng.Find.Execute Then
         fRng.Characters(1).Case = 1
     End If
 End Sub
@@ -125,9 +125,8 @@ Public Sub FormatSourceNoteRange(ByVal doc As Document, ByVal rng As Range, _
     Else
         Dim fRng As Range
         Set fRng = rng.Duplicate
-        fRng.Find.ClearFormatting
-        fRng.Find.Replacement.ClearFormatting
-        If fRng.Find.Execute(FindText:=":", MatchWildcards:=False, Format:=False, Wrap:=0) Then
+        ModMathHelpers.InitDomFind fRng.Find, ":"
+        If fRng.Find.Execute Then
             colonSplitPos = fRng.End
         End If
     End If

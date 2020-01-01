@@ -100,6 +100,9 @@ Public Sub InsertMarkerAtSelection(ByVal doc As Document, ByVal markerText As St
     If markerIdx > 0 Then
         Dim markerPara As Paragraph
         Set markerPara = doc.Paragraphs(markerIdx)
+        If markerPara.Range.ListFormat.ListType <> 0 Then
+            markerPara.Range.ListFormat.RemoveNumbers
+        End If
         markerPara.Range.HighlightColorIndex = 7 ' wdYellow = 7
         ModFormatSingle.SafeSetOutlineLevel markerPara.Range, 10
         

@@ -92,14 +92,18 @@ Private Function ParseEnvironmentCore() As Long
                     ParseEnvironmentCore = 0
                     Exit Function
                 End If
-                cellList = ModTexAst.AllocNode(AST_LIST)
-                Set ModTexAst.mNodes(cellList).ChildList = cellItems
                 If envName = "equation" Or envName = "equation*" Then
+                    cellList = ModTexAst.AllocNode(AST_LIST)
+                    Set ModTexAst.mNodes(cellList).ChildList = cellItems
                     ParseEnvironmentCore = cellList
                     Exit Function
                 End If
-                curRow.Add cellList
-                rows.Add curRow
+                If Not (curRow.Count = 0 And cellItems.Count = 0 And rows.Count > 0) Then
+                    cellList = ModTexAst.AllocNode(AST_LIST)
+                    Set ModTexAst.mNodes(cellList).ChildList = cellItems
+                    curRow.Add cellList
+                    rows.Add curRow
+                End If
                 foundEnd = True
                 Exit Do
             ElseIf curT.Val = "\hline" Then

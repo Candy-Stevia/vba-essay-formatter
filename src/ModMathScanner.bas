@@ -174,7 +174,13 @@ End Function
 
 Public Function StripOuterDelims(ByVal txt As String) As String
     Dim s As String
-    s = Trim$(txt)
+    s = txt
+    Do While Len(s) > 0 And (Left$(s, 1) = vbCr Or Left$(s, 1) = Chr(7) Or Left$(s, 1) = " " Or Left$(s, 1) = vbTab)
+        s = Mid$(s, 2)
+    Loop
+    Do While Len(s) > 0 And (Right$(s, 1) = vbCr Or Right$(s, 1) = Chr(7) Or Right$(s, 1) = " " Or Right$(s, 1) = vbTab)
+        s = Left$(s, Len(s) - 1)
+    Loop
     If Left$(s, 2) = "$$" And Right$(s, 2) = "$$" And Len(s) >= 4 Then
         s = Trim$(Mid$(s, 3, Len(s) - 4))
     ElseIf Left$(s, 2) = "\[" And Right$(s, 2) = "\]" And Len(s) >= 4 Then
@@ -187,10 +193,21 @@ Public Function StripOuterDelims(ByVal txt As String) As String
     StripOuterDelims = s
 End Function
 
+Private Function HasApaYearParen(ByVal s As String) As Boolean
+    If InStr(1, s, "(") = 0 Then Exit Function
+    Static reApaYr As Object
+    If reApaYr Is Nothing Then
+        Set reApaYr = CreateObject("VBScript.RegExp")
+        reApaYr.IgnoreCase = True
+        reApaYr.Pattern = "\(\s*(?:(?:18|19|20)\d{2}[a-z]?|n\.d\.?|k\.n\.)"
+    End If
+    HasApaYearParen = reApaYr.Test(s)
+End Function
+
 Private Function CheckNoFlyHeading(ByVal rawText As String, ByRef isScanningActive As Boolean) As Boolean
     Dim cleanHead As String, cls As Long
     cleanHead = Trim$(Replace(Replace(Replace(rawText, vbCr, ""), Chr(11), ""), Chr(7), ""))
-    If Len(cleanHead) <= 160 And InStr(1, cleanHead, "(") = 0 Then
+    If Len(cleanHead) <= 160 And Not HasApaYearParen(cleanHead) Then
         cls = ModLocale.ClassifyRefZoneHeading(cleanHead, True)
         If cls = 1 Then
             isScanningActive = False

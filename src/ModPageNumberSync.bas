@@ -363,7 +363,7 @@ Public Function ApplyEqTagAndWrapRange(ByVal doc As Document, ByVal om As OMath,
     End If
     If om.Range.Information(12) Then
         rTab = om.Range.Cells(1).Width - 10#
-        If rTab < 40# Then rTab = 40#
+        If rTab < 40# Or rTab > 2000# Then rTab = CalculateRightTab(doc, om.Range)
     Else
         rTab = CalculateRightTab(doc, om.Range)
     End If

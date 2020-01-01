@@ -61,110 +61,147 @@ Private Sub ScanAndFormatQuickItems(ByVal doc As Document, ByRef markers As Mark
     Dim qp As QuickRegexPool, patFig As String
     ModScanner.InitQuickRegexPool qp
     patFig = ModLocale.GetPatternFigure()
+    Dim wantXref As Boolean, reXrefQuick As Object
+    wantXref = (g_Config.CrossRefColor <> "xref_off")
+    If wantXref Then
+        Set reXrefQuick = CreateObject("VBScript.RegExp")
+        reXrefQuick.IgnoreCase = True
+        reXrefQuick.Global = False
+        reXrefQuick.Pattern = ModCrossRef.BuildCrossRefPattern()
+    End If
     Dim totalParas As Long, latexFlags() As Boolean, latexWarn As Long, docHasMath As Boolean
     totalParas = doc.Paragraphs.Count
-    qCount = totalParas
+    qCount = 0
+    Dim qCap As Long
+    qCap = 64
     ReDim items(1 To 64)
-    If totalParas > 0 Then ReDim qSnaps(1 To totalParas)
+    ReDim qSnaps(1 To qCap)
     ModTableIndex.BuildTableIndex doc
+    ModTableIndex.BuildListIndex doc
+    ModTableIndex.BuildOMathIndex doc
     ModLatex.ComputeLatexFlags doc, latexFlags, latexWarn
     docHasMath = (doc.OMaths.Count > 0)
-    Dim numOldTocs As Long, tocS() As Long, tocE() As Long
+    Dim hasTags As Boolean, numOldTocs As Long, tocS() As Long, tocE() As Long
+    hasTags = ModCustomProfile.HasActiveTags()
     ModScanner.CollectOldListRanges doc, tocS, tocE, numOldTocs
     Dim i As Long, p As Paragraph, rng As Range, raw As String, clean As String
     Dim inContent As Boolean, inPost As Boolean, tType As Long, bmName As String, inTbl As Boolean, isSkip As Boolean
+    Dim isCandLen As Boolean, hasXref As Boolean, tagCode As Long, rStart As Long, rEnd As Long, hasParaMath As Boolean
     i = 0
     For Each p In doc.Paragraphs
         i = i + 1
         ModProgress.ProgressUpdate i, totalParas
         Set rng = p.Range
         raw = rng.Text
-        qSnaps(i).ParaIndex = i
-        qSnaps(i).RangeStart = rng.Start
-        qSnaps(i).RangeEnd = rng.End
-        inContent = (i > markers.ContentStartParaIndex And i < markers.ContentEndParaIndex)
-        inPost = (i > markers.ContentEndParaIndex)
-        tType = ElementTypeUnknown
-        isSkip = latexFlags(i) Or IsOldTocPara(rng, tocS, tocE, numOldTocs) Or IsMathBlockPara(rng, docHasMath) Or (rng.ListFormat.ListType <> 0)
-        If isSkip Then qSnaps(i).IsExcluded = True
-        inTbl = ModTableIndex.IsRangeInTable(rng)
-        If Not isSkip And Len(raw) <= 550 Then
-            clean = CleanQuickText(raw)
-            If Len(clean) > 0 And Len(clean) <= 500 Then
-                If Left$(clean, 1) = "=" And qp.ReMrk.Test(clean) Then
-                ElseIf inTbl And Not ModScanner.IsLayoutFigureCaption(rng, clean, qp.ReFig, patFig) Then
-                ElseIf qp.ReManToc.Test(clean) Then
-                    If Not slots(1).Found Then tType = ElementTypeLevel1
-                ElseIf qp.ReManLot.Test(clean) Then
-                    If Not slots(2).Found Then tType = ElementTypeLevel1
-                ElseIf qp.ReManLof.Test(clean) Then
-                    If Not slots(3).Found Then tType = ElementTypeLevel1
-                ElseIf qp.ReL1.Test(clean) Or (inContent And ModLocale.IsRomanLevel1(clean)) Then
-                    tType = ElementTypeLevel1
-                ElseIf inContent Or inPost Then
-                    If qp.ReTbl.Test(clean) Then
-                        tType = ElementTypeTableTitle
-                    ElseIf qp.ReFig.Test(clean) Then
-                        tType = ElementTypeFigureTitle
-                    ElseIf qp.ReSrc.Test(clean) Then
-                        tType = ElementTypeSourceNote
-                    ElseIf inContent Then
-                        If qp.ReL2.Test(clean) Then
-                            tType = ElementTypeLevel2
-                        ElseIf qp.ReL3.Test(clean) Then
-                            tType = ElementTypeLevel3
-                        ElseIf qp.ReL4.Test(clean) Then
-                            tType = ElementTypeLevel4
+        If Len(raw) <= 2 And Not hasTags Then GoTo NextQuickPara
+        isCandLen = (Len(raw) > 2 And Len(raw) <= 350)
+        hasXref = False
+        If wantXref And i > markers.ContentStartParaIndex And Len(raw) > 5 Then hasXref = reXrefQuick.Test(raw)
+        tagCode = 0
+        If hasTags Then
+            rStart = rng.Start
+            rEnd = rng.End
+            tagCode = ModCustomProfile.LookupTagForRange(rStart, rEnd)
+        End If
+        If isCandLen Or (tagCode <> 0) Or hasXref Then
+            If Not hasTags Then
+                rStart = rng.Start
+                rEnd = rng.End
+            End If
+            inContent = (i > markers.ContentStartParaIndex And i < markers.ContentEndParaIndex)
+            inPost = (i > markers.ContentEndParaIndex)
+            tType = ElementTypeUnknown
+            hasParaMath = False
+            If docHasMath Then hasParaMath = ModTableIndex.HasOMathInSpan(rStart, rEnd)
+            isSkip = latexFlags(i) Or IsOldTocPara(rng, tocS, tocE, numOldTocs)
+            If Not isSkip And hasParaMath Then isSkip = IsMathBlockPara(rng, True)
+            inTbl = ModTableIndex.IsPosInTable(rStart)
+            If Not isSkip And (isCandLen Or tagCode > 0) Then
+                clean = CleanQuickText(raw)
+                If Len(clean) > 0 Then
+                    If tagCode > 0 Then
+                        tType = tagCode
+                    ElseIf tagCode = TAG_CODE_SKIP Then
+                        tType = ElementTypeUnknown
+                        ModFormatSingle.EnsureOutlineLevelDetachHeading doc, rng, 10
+                    ElseIf ModTableIndex.IsPosInList(rStart) Then
+                        isSkip = True
+                    ElseIf Left$(clean, 1) = "=" And qp.ReMrk.Test(clean) Then
+                    ElseIf inTbl And Not ModScanner.IsLayoutFigureCaption(rng, clean, qp.ReFig, patFig) Then
+                    ElseIf qp.ReManToc.Test(clean) Then
+                        If Not slots(1).Found Then tType = ElementTypeLevel1
+                    ElseIf qp.ReManLot.Test(clean) Then
+                        If Not slots(2).Found Then tType = ElementTypeLevel1
+                    ElseIf qp.ReManLof.Test(clean) Then
+                        If Not slots(3).Found Then tType = ElementTypeLevel1
+                    ElseIf qp.ReL1.Test(clean) Or (inContent And ModLocale.IsRomanLevel1(clean)) Then
+                        tType = ElementTypeLevel1
+                    ElseIf inContent Or inPost Then
+                        If qp.ReTbl.Test(clean) Then
+                            tType = ElementTypeTableTitle
+                        ElseIf qp.ReFig.Test(clean) Then
+                            tType = ElementTypeFigureTitle
+                        ElseIf qp.ReSrc.Test(clean) Then
+                            tType = ElementTypeSourceNote
+                        ElseIf inContent Then
+                            If qp.ReL2.Test(clean) Then
+                                tType = ElementTypeLevel2
+                            ElseIf qp.ReL3.Test(clean) Then
+                                tType = ElementTypeLevel3
+                            ElseIf qp.ReL4.Test(clean) Then
+                                tType = ElementTypeLevel4
+                            End If
+                        End If
+                    End If
+                    If tType <> ElementTypeUnknown Then
+                        bmName = ""
+                        If tType >= ElementTypeLevel1 And tType <= ElementTypeLevel4 Then
+                            cntHead = cntHead + 1
+                            bmName = ModBookmark.FormatBookmarkId(BM_PREFIX_TOC, cntHead)
+                        ElseIf tType = ElementTypeTableTitle Then
+                            cntTbl = cntTbl + 1
+                            bmName = ModBookmark.FormatBookmarkId(BM_PREFIX_TBL, cntTbl)
+                        ElseIf tType = ElementTypeFigureTitle Then
+                            cntFig = cntFig + 1
+                            bmName = ModBookmark.FormatBookmarkId(BM_PREFIX_FIG, cntFig)
+                        ElseIf tType = ElementTypeSourceNote Then
+                            cntNotes = cntNotes + 1
+                        End If
+                        ModFormatSingle.FormatSingleItem doc, rng, tType, bmName, g_Config.FontName, g_Config.FontSize, g_Config.IndentPts, hasParaMath
+                        ModFormatBatch.AppendQuickSnap qSnaps, qCount, qCap, i, rng.Start, rng.End, tType, raw, clean
+                        If tType <> ElementTypeSourceNote Then
+                            itemCount = itemCount + 1
+                            If itemCount > UBound(items) Then ReDim Preserve items(1 To itemCount + 64)
+                            items(itemCount).ElementType = tType
+                            items(itemCount).CleanText = clean
+                            items(itemCount).BookmarkName = bmName
                         End If
                     End If
                 End If
-                If tType <> ElementTypeUnknown Then
-                    bmName = ""
-                    If tType >= ElementTypeLevel1 And tType <= ElementTypeLevel4 Then
-                        cntHead = cntHead + 1
-                        bmName = ModBookmark.FormatBookmarkId(BM_PREFIX_TOC, cntHead)
-                    ElseIf tType = ElementTypeTableTitle Then
-                        cntTbl = cntTbl + 1
-                        bmName = ModBookmark.FormatBookmarkId(BM_PREFIX_TBL, cntTbl)
-                    ElseIf tType = ElementTypeFigureTitle Then
-                        cntFig = cntFig + 1
-                        bmName = ModBookmark.FormatBookmarkId(BM_PREFIX_FIG, cntFig)
-                    ElseIf tType = ElementTypeSourceNote Then
-                        cntNotes = cntNotes + 1
-                    End If
-                    ModFormatSingle.FormatSingleItem doc, rng, tType, bmName, g_Config.FontName, g_Config.FontSize, g_Config.IndentPts, docHasMath
-                    qSnaps(i).ElementType = tType
-                    qSnaps(i).CleanText = clean
-                    qSnaps(i).RawText = raw
-                    If tType <> ElementTypeSourceNote Then
-                        itemCount = itemCount + 1
-                        If itemCount > UBound(items) Then ReDim Preserve items(1 To itemCount + 64)
-                        items(itemCount).ElementType = tType
-                        items(itemCount).CleanText = clean
-                        items(itemCount).BookmarkName = bmName
-                    End If
-                End If
+            ElseIf Not isSkip And ModTableIndex.IsPosInList(rStart) Then
+                isSkip = True
+            End If
+            If tType = ElementTypeUnknown And Not isSkip And hasXref Then
+                Dim candType As Long
+                If inTbl Then candType = ElementTypeTableCell Else candType = ElementTypeNormalParagraph
+                ModFormatBatch.AppendQuickSnap qSnaps, qCount, qCap, i, rStart, rEnd, candType, raw, CleanQuickText(raw)
             End If
         End If
-        If tType = ElementTypeUnknown And Not isSkip And i > markers.ContentStartParaIndex And Len(raw) > 5 Then
-            If inTbl Then qSnaps(i).ElementType = ElementTypeTableCell Else qSnaps(i).ElementType = ElementTypeNormalParagraph
-            qSnaps(i).RawText = raw
-            qSnaps(i).CleanText = CleanQuickText(raw)
-        End If
+NextQuickPara:
     Next p
     ModBookmark.CleanExcessBookmarks doc, cntHead, cntTbl, cntFig
 End Sub
 
-Private Sub InsertTocHeadersSorted(ByVal doc As Document, ByRef curRng As Range, ByVal itemPos As Long, _
-                                   ByRef hdrs() As String, ByRef bms() As String, _
-                                   ByVal hCount As Long, ByRef hIdx As Long, ByVal tabPos As Single, ByRef entryCnt As Long)
+Private Sub CollectTocHeadersSorted(ByVal doc As Document, ByVal itemPos As Long, _
+                                    ByRef hdrs() As String, ByRef bms() As String, _
+                                    ByVal hCount As Long, ByRef hIdx As Long, _
+                                    ByRef entries() As BatchListEntry, ByRef eCnt As Long, ByRef eCap As Long)
     Dim doIns As Boolean
     Do While hIdx <= hCount
         doIns = (itemPos < 0)
         If Not doIns And doc.Bookmarks.Exists(bms(hIdx)) Then doIns = (doc.Bookmarks(bms(hIdx)).Range.Start < itemPos)
         If doIns Then
-            Set curRng = ModListBuilder.InsertEntry(doc, curRng, hdrs(hIdx), bms(hIdx), g_Config.FontName, g_Config.FontSize, tabPos, 0#, True)
-            entryCnt = entryCnt + 1
+            ModFormatBatch.AppendBatchEntry entries, eCnt, eCap, hdrs(hIdx), bms(hIdx), 0#, True
             hIdx = hIdx + 1
         ElseIf itemPos >= 0 And Not doc.Bookmarks.Exists(bms(hIdx)) Then
             hIdx = hIdx + 1
@@ -201,17 +238,18 @@ Private Sub BuildQuickSingleList(ByVal doc As Document, ByRef slot As QuickZoneS
     ModListBuilder.InsertListHeader doc, pIdx, hdrTitle, slot.HeaderTrackBm, g_Config.FontName, g_Config.FontSize
     ModBookmark.AddBookmark doc, slot.HeaderBm, doc.Paragraphs(pIdx).Range
     If pIdx + 1 = doc.Paragraphs.Count Then doc.Paragraphs(pIdx + 1).Range.InsertAfter vbCr
-    Dim tabPos As Single, curRng As Range, built As Long, itemPos As Long
+    Dim tabPos As Single, curRng As Range, entries() As BatchListEntry, built As Long, eCap As Long, itemPos As Long
     tabPos = ModPageNumberSync.CalculateRightTab(doc, doc.Paragraphs(pIdx).Range)
     Set curRng = doc.Paragraphs(pIdx + 1).Range
     If slot.MarkerPara = 0 Then curRng.Collapse 1
+    built = 0
     If slot.Kind = 3 Or slot.Kind = 2 Then
         For i = 1 To itemCount
             If items(i).ElementType = wantType Then
-                Set curRng = ModListBuilder.InsertEntry(doc, curRng, items(i).CleanText, items(i).BookmarkName, g_Config.FontName, g_Config.FontSize, tabPos, 0#, True)
-                built = built + 1
+                ModFormatBatch.AppendBatchEntry entries, built, eCap, items(i).CleanText, items(i).BookmarkName, 0#, True
             End If
         Next i
+        Set curRng = ModFormatBatch.InsertListEntriesBatch(doc, curRng, entries, built, g_Config.FontName, g_Config.FontSize, tabPos, 0#, True)
     Else
         Dim hdrs(1 To 4) As String, bms(1 To 4) As String, hPos(1 To 4) As Long, hCount As Long
         ModListBuilder.CollectSortedHeaderTargets doc, hdrs, bms, hPos, hCount
@@ -222,7 +260,7 @@ Private Sub BuildQuickSingleList(ByVal doc As Document, ByRef slot As QuickZoneS
             If items(i).ElementType >= ElementTypeLevel1 And items(i).ElementType <= ElementTypeLevel4 Then
                 If doc.Bookmarks.Exists(items(i).BookmarkName) Then
                     itemPos = doc.Bookmarks(items(i).BookmarkName).Range.Start
-                    InsertTocHeadersSorted doc, curRng, itemPos, hdrs, bms, hCount, hIdx, tabPos, built
+                    CollectTocHeadersSorted doc, itemPos, hdrs, bms, hCount, hIdx, entries, built, eCap
                 End If
                 If items(i).ElementType <= maxAllowed Then
                     indPts = 0#
@@ -230,12 +268,12 @@ Private Sub BuildQuickSingleList(ByVal doc As Document, ByRef slot As QuickZoneS
                     If items(i).ElementType = ElementTypeLevel2 Then indPts = CmToPoints(0.5)
                     If items(i).ElementType = ElementTypeLevel3 Then indPts = CmToPoints(0.75)
                     If items(i).ElementType = ElementTypeLevel4 Then indPts = CmToPoints(1#)
-                    Set curRng = ModListBuilder.InsertEntry(doc, curRng, items(i).CleanText, items(i).BookmarkName, g_Config.FontName, g_Config.FontSize, tabPos, indPts, isB)
-                    built = built + 1
+                    ModFormatBatch.AppendBatchEntry entries, built, eCap, items(i).CleanText, items(i).BookmarkName, indPts, isB
                 End If
             End If
         Next i
-        InsertTocHeadersSorted doc, curRng, -1, hdrs, bms, hCount, hIdx, tabPos, built
+        CollectTocHeadersSorted doc, -1, hdrs, bms, hCount, hIdx, entries, built, eCap
+        Set curRng = ModFormatBatch.InsertListEntriesBatch(doc, curRng, entries, built, g_Config.FontName, g_Config.FontSize, tabPos, 0#, g_Config.IsBoldTOC)
     End If
     slot.ItemCount = built
     slot.EntryCount = built
@@ -281,6 +319,7 @@ Public Sub RunQuickUpdate(Optional ByVal targetDoc As Document = Nothing)
     ModRibbonCallbacks.EnsureConfigInitialized
     ModConstants.g_SilentErrors = 0
     ModRibbonCallbacks.g_LastError = ""
+    ModCustomProfile.LoadStyleProfile doc
 
     Dim errMsg As String, markers As MarkerLocations, wasTracking As Boolean, isSuccess As Boolean
     If Not ModBackup.ValidatePreFlightConditions(doc, errMsg) Then
@@ -312,17 +351,10 @@ Public Sub RunQuickUpdate(Optional ByVal targetDoc As Document = Nothing)
         If hasView Then doc.ActiveWindow.View.Type = 1
         Err.Clear
     End If
-    On Error GoTo MainErr
     Dim objUndo As Object, undoStarted As Boolean
-    On Error Resume Next
     Set objUndo = Application.UndoRecord
     On Error GoTo MainErr
-    If Not objUndo Is Nothing Then
-        If Not objUndo.IsRecordingCustomRecord Then
-            objUndo.StartCustomRecord "Quick Update TOC & Lists"
-            undoStarted = True
-        End If
-    End If
+    undoStarted = ModBackup.StartUndoSafe("Quick Update TOC & Lists", objUndo)
     ModProgress.ProgressInit "Quick Update"
     ModProgress.ProgressSetPhase ModConstants.Uni("Preparing Zones (Chu\u1ea9n b\u1ecb v\u00f9ng)"), 5#, 15#
     Dim slots() As QuickZoneSlot
@@ -331,6 +363,7 @@ Public Sub RunQuickUpdate(Optional ByVal targetDoc As Document = Nothing)
         GoTo CleanExit
     End If
     If Not ModMarkerLexer.ScanMarkers(doc, markers, errMsg) Then Err.Raise vbObjectError + 1000, "RunQuickUpdate", errMsg
+    ModCustomProfile.LoadTagCache doc
     ModProgress.ProgressSetPhase ModConstants.Uni("Scanning Items (Qu\u00e9t ti\u00eau \u0111\u1ec1)"), 20#, 35#
     Dim items() As QuickItem, itemCount As Long, cntHead As Long, cntTbl As Long, cntFig As Long, cntNotes As Long, qSnaps() As ParagraphSnapshot, qCount As Long
     ScanAndFormatQuickItems doc, markers, slots, items, itemCount, cntHead, cntTbl, cntFig, cntNotes, qSnaps, qCount
@@ -360,8 +393,14 @@ CleanExit:
     If hasPag Then Application.Options.Pagination = prevPag
     If undoStarted And Not (objUndo Is Nothing) Then If objUndo.IsRecordingCustomRecord Then objUndo.EndCustomRecord
     If Not doc Is Nothing Then ModBackup.RestoreTrackChanges doc, wasTracking
-    If screenDisabled Then Application.ScreenUpdating = prevScreen
+    If screenDisabled Then
+        Application.ScreenUpdating = prevScreen
+        Application.ScreenRefresh
+    End If
     If isSuccess Then ModUI.ShowQuickUpdateReport slots(1).Found, slots(1).ItemCount, slots(2).Found, slots(2).ItemCount, slots(3).Found, slots(3).ItemCount, cntHead, cntTbl, cntFig, cntNotes
+    ModCustomProfile.ResetStyleProfileCache
+    ModCustomProfile.ResetTagCache
+    ModTableIndex.InvalidateAllIndexes
     ModMain.g_IsEngineRunning = False
 End Sub
 ' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

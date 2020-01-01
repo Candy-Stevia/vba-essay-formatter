@@ -337,7 +337,7 @@ Public Sub TrimMathRange(ByRef rng As Range)
                 Exit Do
             End If
         End If
-        If InStr(1, " " & vbTab & vbCr & Chr(11) & ".,;:?", c) > 0 Then
+        If InStr(1, " " & vbTab & vbCr & Chr(11) & Chr(7) & ".,;:?", c) > 0 Then
             prevPos = rng.Start
             rng.Start = rng.Start + 1
             If rng.Start <= prevPos Then
@@ -358,7 +358,7 @@ Public Sub TrimMathRange(ByRef rng As Range)
                 Exit Do
             End If
         End If
-        If InStr(1, " " & vbTab & vbCr & Chr(11) & ".,;:?", c) > 0 Then
+        If InStr(1, " " & vbTab & vbCr & Chr(11) & Chr(7) & ".,;:?", c) > 0 Then
             prevPos = rng.End
             rng.End = rng.End - 1
             If rng.End >= prevPos Then

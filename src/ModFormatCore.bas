@@ -125,12 +125,7 @@ Public Function ExecuteRecord1(ByVal doc As Document, ByRef snapshots() As Parag
             
             If tType = ElementTypeNormalParagraph And ModFormatBatch.IsBatchableNormal(snapshots(i)) Then
                 hasMathInThisPara = False
-                If hasOMaths Then
-                    Set rng = doc.Range(snapshots(i).RangeStart, snapshots(i).RangeEnd)
-                    If rng.OMaths.Count > 0 Then
-                        hasMathInThisPara = True
-                    End If
-                End If
+                If hasOMaths Then hasMathInThisPara = ModTableIndex.HasOMathInSpan(snapshots(i).RangeStart, snapshots(i).RangeEnd)
                 
                 If Not hasMathInThisPara Then
                     j = i
@@ -138,10 +133,7 @@ Public Function ExecuteRecord1(ByVal doc As Document, ByRef snapshots() As Parag
                         If ModFormatBatch.IsBatchableNormal(snapshots(j - 1)) Then
                             If snapshots(j - 1).RangeEnd = snapshots(j).RangeStart Then
                                 If hasOMaths Then
-                                    Set rng = doc.Range(snapshots(j - 1).RangeStart, snapshots(j - 1).RangeEnd)
-                                    If rng.OMaths.Count > 0 Then
-                                        Exit Do
-                                    End If
+                                    If ModTableIndex.HasOMathInSpan(snapshots(j - 1).RangeStart, snapshots(j - 1).RangeEnd) Then Exit Do
                                 End If
                                 j = j - 1
                             Else
@@ -159,15 +151,36 @@ Public Function ExecuteRecord1(ByVal doc As Document, ByRef snapshots() As Parag
                     i = j - 1
                     GoTo NextLoopIter
                 End If
+            ElseIf tType = ElementTypeTableCell And Not snapshots(i).IsExcluded Then
+                hasMathInThisPara = False
+                If hasOMaths Then hasMathInThisPara = ModTableIndex.HasOMathInSpan(snapshots(i).RangeStart, snapshots(i).RangeEnd)
+                If Not hasMathInThisPara Then
+                    j = i
+                    Do While j > 1
+                        If snapshots(j - 1).ElementType = ElementTypeTableCell And Not snapshots(j - 1).IsExcluded And _
+                           snapshots(j - 1).RangeEnd = snapshots(j).RangeStart Then
+                            If hasOMaths Then
+                                If ModTableIndex.HasOMathInSpan(snapshots(j - 1).RangeStart, snapshots(j - 1).RangeEnd) Then Exit Do
+                            End If
+                            j = j - 1
+                        Else
+                            Exit Do
+                        End If
+                    Loop
+                    ModFormatBatch.FormatTableCellBatch doc, snapshots, j, i, fontName, fontSize
+                    i = j - 1
+                    GoTo NextLoopIter
+                End If
             End If
             
             Set rng = doc.Range(snapshots(i).RangeStart, snapshots(i).RangeEnd)
             
             If snapshots(i).HasSoftBreak And (tType >= ElementTypeLevel1 And tType <= ElementTypeSourceNote) Then
                 If Not ModLocale.IsPrefixOnlyHeading(snapshots(i).FirstLineText) Then
-                    rng.Find.ClearFormatting
+                    ModMathHelpers.InitDomFind rng.Find, Chr(11)
                     rng.Find.Replacement.ClearFormatting
-                    rng.Find.Execute FindText:=Chr(11), ReplaceWith:=vbCr, Replace:=1, MatchWildcards:=False, Format:=False, Wrap:=0
+                    rng.Find.Replacement.Text = vbCr
+                    rng.Find.Execute Replace:=1
                     Set rng = rng.Paragraphs(1).Range
                     snapshots(i).CleanText = snapshots(i).FirstLineText
                 End If

@@ -8,6 +8,20 @@ Option Explicit
 ' Architecture: Academic Document Format Engine (100% 7-bit ASCII, < 400 lines)
 ' ==============================================================================
 
+Public Type PlannedStyleOp
+    ScopeKey As String
+    NormSpec As String
+    IsReset As Boolean
+    SrcLine As Long
+End Type
+
+Public Type PlannedTagOp
+    TagType As String
+    ParaStart As Long
+    ParaEnd As Long
+    SrcLine As Long
+End Type
+
 Public Type PlanStats
     RefsTotal As Long
     RefsMatched As Long
@@ -22,26 +36,26 @@ Public Type PlanStats
     StructsTotal As Long
     StructsPlanned As Long
     StructsSkipped As Long
+    StylesTotal As Long
+    StylesPlanned As Long
+    StylesSkipped As Long
+    TagsTotal As Long
+    TagsPlanned As Long
+    TagsSkipped As Long
     OpCount As Long
     WarnNotes As String
 End Type
 
 Private Sub AppendWarnNote(ByRef stats As PlanStats, ByVal noteLine As String)
-    If Len(noteLine) = 0 Then Exit Sub
-    If Len(stats.WarnNotes) > 900 Then Exit Sub
+    If Len(noteLine) = 0 Or Len(stats.WarnNotes) > 900 Then Exit Sub
     If Len(stats.WarnNotes) > 0 Then stats.WarnNotes = stats.WarnNotes & vbCrLf
     stats.WarnNotes = stats.WarnNotes & "- " & noteLine
 End Sub
-
 Private Function IsParaBoundaryOk(ByVal normTxt As String, ByVal normLen As Long, _
                                   ByVal sPos As Long, ByVal ePos As Long, _
                                   ByVal needLeft As Boolean, ByVal needRight As Boolean) As Boolean
-    If needLeft And sPos > 1 Then
-        If ModPatchMatcher.IsIdentChar(Mid$(normTxt, sPos - 1, 1)) Then Exit Function
-    End If
-    If needRight And ePos < normLen Then
-        If ModPatchMatcher.IsIdentChar(Mid$(normTxt, ePos + 1, 1)) Then Exit Function
-    End If
+    If needLeft And sPos > 1 Then If ModPatchMatcher.IsIdentChar(Mid$(normTxt, sPos - 1, 1)) Then Exit Function
+    If needRight And ePos < normLen Then If ModPatchMatcher.IsIdentChar(Mid$(normTxt, ePos + 1, 1)) Then Exit Function
     IsParaBoundaryOk = True
 End Function
 
@@ -315,5 +329,84 @@ Private Sub SortAndFilterOverlaps(ByRef ops() As PatchOp, ByRef stats As PlanSta
         End If
     Next i
     stats.OpCount = writeIdx
+End Sub
+
+Public Sub PlanStylesAndTags(ByRef payload As PatchPayload, ByRef paras() As ScannedPara, ByVal pCount As Long, _
+                             ByRef outStyles() As PlannedStyleOp, ByRef outStyleCnt As Long, _
+                             ByRef outTags() As PlannedTagOp, ByRef outTagCnt As Long, ByRef outStats As PlanStats)
+    Dim i As Long, j As Long, sKey As String, sNorm As String, sRst As Boolean, sErr As String
+    outStyleCnt = 0
+    outTagCnt = 0
+    outStats.StylesTotal = payload.StyleCount + payload.SkippedStyles
+    outStats.StylesSkipped = payload.SkippedStyles
+    If payload.StyleCount > 0 Then
+        ReDim outStyles(1 To payload.StyleCount)
+        For i = 1 To payload.StyleCount
+            If ModCustomProfile.ValidateStyleDirective(payload.Styles(i).RawLine, sKey, sNorm, sRst, sErr) Then
+                outStyleCnt = outStyleCnt + 1
+                outStyles(outStyleCnt).ScopeKey = sKey
+                outStyles(outStyleCnt).NormSpec = sNorm
+                outStyles(outStyleCnt).IsReset = sRst
+                outStyles(outStyleCnt).SrcLine = payload.Styles(i).LineNo
+                outStats.StylesPlanned = outStats.StylesPlanned + 1
+            Else
+                outStats.StylesSkipped = outStats.StylesSkipped + 1
+                AppendWarnNote outStats, "@STYLE L" & payload.Styles(i).LineNo & ": " & sErr
+            End If
+        Next i
+    End If
+    outStats.TagsTotal = payload.TagCount + payload.SkippedTags
+    outStats.TagsSkipped = payload.SkippedTags
+    If payload.TagCount <= 0 Then Exit Sub
+    ReDim outTags(1 To payload.TagCount)
+    Dim tType As String, ctxNorm As String, hits As Long, winIdx As Long, allowTbl As Boolean
+    For i = 1 To payload.TagCount
+        tType = UCase$(Trim$(payload.Tags(i).TagType))
+        ctxNorm = ModPatchMatcher.NormalizeStr(payload.Tags(i).CtxText)
+        If Not ModCustomProfile.IsValidTagType(tType) Or Len(ctxNorm) = 0 Then
+            outStats.TagsSkipped = outStats.TagsSkipped + 1
+            AppendWarnNote outStats, "@TAG L" & payload.Tags(i).LineNo & ": Invalid TYPE or empty CTX"
+        Else
+            allowTbl = (tType = "FIG" Or tType = "SKIP" Or tType = "CLEAR")
+            Dim passTier As Long, isMatch As Boolean
+            hits = 0
+            winIdx = 0
+            For passTier = 1 To 4
+                hits = 0
+                winIdx = 0
+                For j = 1 To pCount
+                    If Not paras(j).IsInRefZone And Not paras(j).IsExcluded And ((Not paras(j).IsInTable) Or allowTbl) Then
+                        isMatch = False
+                        If passTier = 1 Then
+                            isMatch = (StrComp(paras(j).NormText, ctxNorm, vbBinaryCompare) = 0)
+                        ElseIf passTier = 2 Then
+                            isMatch = (StrComp(paras(j).NormText, ctxNorm, vbTextCompare) = 0)
+                        ElseIf passTier = 3 Then
+                            isMatch = (InStr(1, paras(j).NormText, ctxNorm, vbBinaryCompare) > 0)
+                        Else
+                            isMatch = (InStr(1, paras(j).NormText, ctxNorm, vbTextCompare) > 0)
+                        End If
+                        If isMatch Then
+                            hits = hits + 1
+                            winIdx = j
+                            If hits > 1 Then Exit For
+                        End If
+                    End If
+                Next j
+                If hits > 0 Then Exit For
+            Next passTier
+            If hits = 1 Then
+                outTagCnt = outTagCnt + 1
+                outTags(outTagCnt).TagType = tType
+                outTags(outTagCnt).ParaStart = paras(winIdx).RangeStart
+                outTags(outTagCnt).ParaEnd = paras(winIdx).RangeEnd
+                outTags(outTagCnt).SrcLine = payload.Tags(i).LineNo
+                outStats.TagsPlanned = outStats.TagsPlanned + 1
+            Else
+                outStats.TagsSkipped = outStats.TagsSkipped + 1
+                AppendWarnNote outStats, "@TAG L" & payload.Tags(i).LineNo & ": " & IIf(hits = 0, "Not found", "Ambiguous (2+ hits)")
+            End If
+        End If
+    Next i
 End Sub
 ' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

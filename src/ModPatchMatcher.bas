@@ -201,6 +201,9 @@ Public Function ScanDocForPatch(ByVal doc As Document, ByRef outMarkers As Marke
         End If
     Next bm
     ModTableIndex.BuildTableIndex doc
+    ModCustomProfile.LoadTagCache doc
+    Dim hasTags As Boolean, tagCode As Long
+    hasTags = ModCustomProfile.HasActiveTags()
     Dim reL1 As Object, reL2 As Object, reL3 As Object, reL4 As Object
     Dim reTbl As Object, reFig As Object, reMark As Object
     Set reL1 = CreateObject("VBScript.RegExp")
@@ -267,17 +270,32 @@ Public Function ScanDocForPatch(ByVal doc As Document, ByRef outMarkers As Marke
                 If isL1 Or reL2.Test(normTxt) Or reL3.Test(normTxt) Or reL4.Test(normTxt) Or reTbl.Test(normTxt) Or reFig.Test(normTxt) Then
                     isHead = True
                 End If
-                If pIdx >= startP Then
-                    If isL1 Then
-                        refCls = ModLocale.ClassifyRefZoneHeading(normTxt)
-                        If refCls = 1 Then
-                            inRefZone = True
-                        ElseIf refCls = -1 Then
-                            inRefZone = False
-                        End If
-                    ElseIf inRefZone And nLen <= 100 And InStr(1, normTxt, "(") = 0 Then
-                        If ModLocale.ClassifyRefZoneHeading(normTxt) = -1 Then inRefZone = False
+            End If
+            If Not isExcl And hasTags Then
+                tagCode = ModCustomProfile.LookupTagForRange(rng.Start, rng.End)
+                If tagCode = TAG_CODE_SKIP Then
+                    isL1 = False
+                    isHead = False
+                ElseIf tagCode = ElementTypeLevel1 Then
+                    isL1 = True
+                    isHead = True
+                ElseIf tagCode >= ElementTypeLevel2 And tagCode <= ElementTypeFigureTitle Then
+                    isHead = True
+                ElseIf tagCode = ElementTypeSourceNote Then
+                    isL1 = False
+                    isHead = False
+                End If
+            End If
+            If Not isExcl And Not inTbl And nLen <= MAX_HEADING_LEN And pIdx >= startP Then
+                If isL1 Then
+                    refCls = ModLocale.ClassifyRefZoneHeading(normTxt)
+                    If refCls = 1 Then
+                        inRefZone = True
+                    ElseIf refCls = -1 Then
+                        inRefZone = False
                     End If
+                ElseIf inRefZone And nLen <= 100 And InStr(1, normTxt, "(") = 0 Then
+                    If ModLocale.ClassifyRefZoneHeading(normTxt) = -1 Then inRefZone = False
                 End If
             End If
             outCount = outCount + 1
@@ -297,6 +315,7 @@ Public Function ScanDocForPatch(ByVal doc As Document, ByRef outMarkers As Marke
             outParas(outCount).IsExcluded = isExcl
         End If
     Next p
+    ModCustomProfile.ResetTagCache
     ScanDocForPatch = True
 End Function
 

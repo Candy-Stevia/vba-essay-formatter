@@ -258,24 +258,26 @@ Public Function DiscoverAndPrepareQuickZones(ByVal doc As Document, ByRef marker
     InitSlot slots(1), 1, BM_ZONE_TOC, BM_TOC_HEADER, "bm_qu_anc_toc", "bm_qu_hdr_toc", markers.ListContentParaIndex
     InitSlot slots(2), 2, BM_ZONE_LOT, BM_LOT_HEADER, "bm_qu_anc_lot", "bm_qu_hdr_lot", markers.ListTableParaIndex
     InitSlot slots(3), 3, BM_ZONE_LOF, BM_LOF_HEADER, "bm_qu_anc_lof", "bm_qu_hdr_lof", markers.ListFigureParaIndex
+    ModTableIndex.BuildTableIndex doc
     Dim pStarts() As Long, pEnds() As Long, pTexts() As String, pFlags() As Long
     ReDim pStarts(1 To totalParas)
     ReDim pEnds(1 To totalParas)
     ReDim pTexts(1 To totalParas)
     ReDim pFlags(1 To totalParas)
-    Dim i As Long, p As Paragraph, rawTxt As String, flg As Long
+    Dim i As Long, p As Paragraph, pRng As Range, rawTxt As String, flg As Long
     i = 0
     For Each p In doc.Paragraphs
         i = i + 1
-        pStarts(i) = p.Range.Start
-        pEnds(i) = p.Range.End
+        Set pRng = p.Range
+        pStarts(i) = pRng.Start
+        pEnds(i) = pRng.End
         If i < csIdx Or (ceIdx > 0 And i > ceIdx) Then
-            rawTxt = p.Range.Text
+            rawTxt = pRng.Text
             pTexts(i) = Trim$(Replace(Replace(Replace(rawTxt, vbCr, ""), Chr(7), ""), Chr(11), " "))
             flg = 0
-            If CBool(p.Range.Information(12)) Then flg = flg Or 1
+            If ModTableIndex.IsPosInTable(pStarts(i)) Then flg = flg Or 1
             If InStr(1, rawTxt, Chr(12)) > 0 Then flg = flg Or 8
-            If p.Range.Hyperlinks.Count > 0 Then
+            If pRng.Hyperlinks.Count > 0 Then
                 flg = flg Or 2
                 If IsQuickEntryPara(p) Then flg = flg Or 4
             End If

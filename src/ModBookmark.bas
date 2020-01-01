@@ -8,6 +8,12 @@ Option Explicit
 ' Architecture: Academic Document Format Engine
 ' ==============================================================================
 
+Private Const TAG_BM_PREFIX As String = "bm_af_"
+Private mTagStarts() As Long
+Private mTagEnds() As Long
+Private mTagCodes() As Long
+Private mTagCount As Long
+
 ' --- Bookmark ID Formatting ---
 
 Public Function FormatBookmarkId(ByVal prefix As String, ByVal idNum As Long) As String
@@ -101,4 +107,89 @@ Public Sub CleanExcessBookmarks(ByVal doc As Document, ByVal cntToc As Long, ByV
         ModZoneManager.SafeDelBm doc, toDel(i)
     Next i
 End Sub
+
+Public Sub ApplyAfTagBookmark(ByVal doc As Document, ByVal pStart As Long, ByVal pEnd As Long, ByVal tagType As String)
+    Dim bm As Bookmark, toDel() As String, delCnt As Long, maxSeq As Long, suffix As String, k As Long
+    For Each bm In doc.Bookmarks
+        If Left$(bm.Name, Len(TAG_BM_PREFIX)) = TAG_BM_PREFIX Then
+            If bm.Range.Start >= pStart And bm.Range.Start < pEnd Then
+                delCnt = delCnt + 1
+                ReDim Preserve toDel(1 To delCnt)
+                toDel(delCnt) = bm.Name
+            End If
+            suffix = Mid$(bm.Name, InStrRev(bm.Name, "_") + 1)
+            If Len(suffix) > 0 And Len(suffix) <= 9 And IsNumeric(suffix) Then
+                If CLng(suffix) > maxSeq Then maxSeq = CLng(suffix)
+            End If
+        End If
+    Next bm
+    For k = 1 To delCnt
+        ModZoneManager.SafeDelBm doc, toDel(k)
+    Next k
+    Dim uType As String, tEnd As Long, pRng As Range
+    uType = UCase$(Trim$(tagType))
+    If uType = "CLEAR" Then Exit Sub
+    Set pRng = doc.Range(pStart, pEnd)
+    If Right$(pRng.Text, 1) = Chr(7) Or CBool(pRng.Information(12)) Then
+        tEnd = pEnd - 2
+    Else
+        tEnd = pEnd - 1
+    End If
+    If tEnd < pStart Then tEnd = pStart
+    AddBookmark doc, TAG_BM_PREFIX & LCase$(uType) & "_" & Format$(maxSeq + 1, "0000"), doc.Range(pStart, tEnd)
+End Sub
+
+Public Sub ResetAfTagCache()
+    mTagCount = 0
+    Erase mTagStarts
+    Erase mTagEnds
+    Erase mTagCodes
+End Sub
+
+Public Sub LoadAfTagCache(ByVal doc As Document)
+    ResetAfTagCache
+    If doc Is Nothing Then Exit Sub
+    Dim bm As Bookmark, rest As String, usPos As Long, code As Long, cap As Long
+    cap = 16
+    For Each bm In doc.Bookmarks
+        If Left$(bm.Name, Len(TAG_BM_PREFIX)) = TAG_BM_PREFIX Then
+            rest = Mid$(bm.Name, Len(TAG_BM_PREFIX) + 1)
+            usPos = InStr(1, rest, "_", vbBinaryCompare)
+            If usPos > 1 Then
+                code = ModCustomProfile.TagTypeToCode(Left$(rest, usPos - 1))
+                If code <> 0 Then
+                    If mTagCount = 0 Then
+                        ReDim mTagStarts(1 To cap)
+                        ReDim mTagEnds(1 To cap)
+                        ReDim mTagCodes(1 To cap)
+                    ElseIf mTagCount >= cap Then
+                        cap = cap * 2
+                        ReDim Preserve mTagStarts(1 To cap)
+                        ReDim Preserve mTagEnds(1 To cap)
+                        ReDim Preserve mTagCodes(1 To cap)
+                    End If
+                    mTagCount = mTagCount + 1
+                    mTagStarts(mTagCount) = bm.Range.Start
+                    mTagEnds(mTagCount) = bm.Range.End
+                    mTagCodes(mTagCount) = code
+                End If
+            End If
+        End If
+    Next bm
+End Sub
+
+Public Function HasActiveAfTags() As Boolean
+    HasActiveAfTags = (mTagCount > 0)
+End Function
+
+Public Function LookupAfTagForRange(ByVal rStart As Long, ByVal rEnd As Long) As Long
+    If mTagCount = 0 Then Exit Function
+    Dim k As Long
+    For k = 1 To mTagCount
+        If mTagStarts(k) >= rStart And mTagStarts(k) < rEnd Then
+            LookupAfTagForRange = mTagCodes(k)
+            Exit Function
+        End If
+    Next k
+End Function
 ' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

@@ -19,12 +19,15 @@ Public Sub InsertListHeader(ByVal doc As Document, ByVal pIdx As Long, ByVal tit
     r.Font.Name = fontName
     r.Font.Size = fontSize
     r.Font.Bold = True
-    r.Case = 1
+    If Not ModCustomProfile.IsL1UpperDisabled() Then
+        r.Case = 1
+    End If
     r.ParagraphFormat.Alignment = 1
     r.ParagraphFormat.FirstLineIndent = 0
     r.ParagraphFormat.LeftIndent = 0
     r.ParagraphFormat.KeepWithNext = True
     ModFormatSingle.SafeSetOutlineLevel r, 1
+    ModCustomProfile.ApplyCustomStyleOverrides doc, r, ElementTypeLevel1, False
     AddBookmark doc, bm, r
 End Sub
 
@@ -40,6 +43,7 @@ End Function
 
 Private Function CleanListTitle(ByVal s As String) As String
     s = Replace(Replace(Replace(s, vbCr, ""), Chr(7), ""), Chr(11), " ")
+    s = Replace(Replace(Replace(s, Chr(1), ""), Chr(2), ""), Chr(5), "")
     s = Replace(Replace(Replace(s, vbTab, " "), Chr(10), " "), Chr(12), " ")
     s = Trim$(s)
     Do While InStr(s, "  ") > 0
@@ -133,16 +137,16 @@ Public Function BuildListOfFigures(ByVal doc As Document, ByRef markers As Marke
     
     Dim startEntriesPos As Long
     startEntriesPos = doc.Paragraphs(pIdx + 1).Range.End
-    Dim curRng As Range
+    Dim curRng As Range, entries() As BatchListEntry, eCap As Long
     Set curRng = doc.Paragraphs(pIdx + 1).Range
     Dim i As Long, figCount As Long
     figCount = 0
     For i = 1 To totalCount
         If snapshots(i).ElementType = ElementTypeFigureTitle Then
-            figCount = figCount + 1
-            Set curRng = InsertEntry(doc, curRng, snapshots(i).CleanText, FormatBookmarkId(BM_PREFIX_FIG, figCount), fontName, fontSize, tabPos, 0#, True)
+            ModFormatBatch.AppendBatchEntry entries, figCount, eCap, snapshots(i).CleanText, FormatBookmarkId(BM_PREFIX_FIG, figCount + 1), 0#, True
         End If
     Next i
+    Set curRng = ModFormatBatch.InsertListEntriesBatch(doc, curRng, entries, figCount, fontName, fontSize, tabPos, 0#, True)
     If curRng.End - 1 > startEntriesPos Then AddBookmark doc, BM_ZONE_LOF, doc.Range(startEntriesPos, curRng.End - 1)
     If autoSync Then
         doc.Repaginate
@@ -193,16 +197,16 @@ Public Function BuildListOfTables(ByVal doc As Document, ByRef markers As Marker
     
     Dim startEntriesPos As Long
     startEntriesPos = doc.Paragraphs(pIdx + 1).Range.End
-    Dim curRng As Range
+    Dim curRng As Range, entries() As BatchListEntry, eCap As Long
     Set curRng = doc.Paragraphs(pIdx + 1).Range
     Dim i As Long, tblCount As Long
     tblCount = 0
     For i = 1 To totalCount
         If snapshots(i).ElementType = ElementTypeTableTitle Then
-            tblCount = tblCount + 1
-            Set curRng = InsertEntry(doc, curRng, snapshots(i).CleanText, FormatBookmarkId(BM_PREFIX_TBL, tblCount), fontName, fontSize, tabPos, 0#, True)
+            ModFormatBatch.AppendBatchEntry entries, tblCount, eCap, snapshots(i).CleanText, FormatBookmarkId(BM_PREFIX_TBL, tblCount + 1), 0#, True
         End If
     Next i
+    Set curRng = ModFormatBatch.InsertListEntriesBatch(doc, curRng, entries, tblCount, fontName, fontSize, tabPos, 0#, True)
     If curRng.End - 1 > startEntriesPos Then AddBookmark doc, BM_ZONE_LOT, doc.Range(startEntriesPos, curRng.End - 1)
     If autoSync Then
         doc.Repaginate
@@ -293,12 +297,13 @@ Public Function BuildTableOfContents(ByVal doc As Document, ByRef markers As Mar
     
     Dim startEntriesPos As Long
     startEntriesPos = doc.Paragraphs(pIdx + 1).Range.End
-    Dim curRng As Range
+    Dim curRng As Range, entries() As BatchListEntry, eCnt As Long, eCap As Long
     Set curRng = doc.Paragraphs(pIdx + 1).Range
+    eCnt = 0
     Dim i As Long, tocCount As Long, hIdx As Long
     tocCount = 0
     hIdx = 1
-    Dim bmName As String, itemPos As Long, maxAllowed As Long
+    Dim bmName As String, itemPos As Long, maxAllowed As Long, indPts As Single, isB As Boolean
     If tocDepth = 3 Then maxAllowed = ElementTypeLevel3 Else maxAllowed = ElementTypeLevel4
     
     For i = 1 To totalCount
@@ -310,7 +315,7 @@ Public Function BuildTableOfContents(ByVal doc As Document, ByRef markers As Mar
                 Do While hIdx <= hCount
                     If doc.Bookmarks.Exists(bms(hIdx)) Then
                         If doc.Bookmarks(bms(hIdx)).Range.Start < itemPos Then
-                            Set curRng = InsertEntry(doc, curRng, hdrs(hIdx), bms(hIdx), fontName, fontSize, tabPos, 0#, True)
+                            ModFormatBatch.AppendBatchEntry entries, eCnt, eCap, hdrs(hIdx), bms(hIdx), 0#, True
                             hIdx = hIdx + 1
                         Else
                             Exit Do
@@ -321,23 +326,20 @@ Public Function BuildTableOfContents(ByVal doc As Document, ByRef markers As Mar
                 Loop
             End If
             If snapshots(i).ElementType <= maxAllowed Then
-                Select Case snapshots(i).ElementType
-                    Case ElementTypeLevel1
-                        Set curRng = InsertEntry(doc, curRng, snapshots(i).CleanText, bmName, fontName, fontSize, tabPos, 0#, True)
-                    Case ElementTypeLevel2
-                        Set curRng = InsertEntry(doc, curRng, snapshots(i).CleanText, bmName, fontName, fontSize, tabPos, CmToPoints(0.5), isBoldAll)
-                    Case ElementTypeLevel3
-                        Set curRng = InsertEntry(doc, curRng, snapshots(i).CleanText, bmName, fontName, fontSize, tabPos, CmToPoints(0.75), isBoldAll)
-                    Case ElementTypeLevel4
-                        Set curRng = InsertEntry(doc, curRng, snapshots(i).CleanText, bmName, fontName, fontSize, tabPos, CmToPoints(1#), isBoldAll)
-                End Select
+                indPts = 0#
+                isB = (snapshots(i).ElementType = ElementTypeLevel1) Or isBoldAll
+                If snapshots(i).ElementType = ElementTypeLevel2 Then indPts = CmToPoints(0.5)
+                If snapshots(i).ElementType = ElementTypeLevel3 Then indPts = CmToPoints(0.75)
+                If snapshots(i).ElementType = ElementTypeLevel4 Then indPts = CmToPoints(1#)
+                ModFormatBatch.AppendBatchEntry entries, eCnt, eCap, snapshots(i).CleanText, bmName, indPts, isB
             End If
         End If
     Next i
     Do While hIdx <= hCount
-        Set curRng = InsertEntry(doc, curRng, hdrs(hIdx), bms(hIdx), fontName, fontSize, tabPos, 0#, True)
+        ModFormatBatch.AppendBatchEntry entries, eCnt, eCap, hdrs(hIdx), bms(hIdx), 0#, True
         hIdx = hIdx + 1
     Loop
+    Set curRng = ModFormatBatch.InsertListEntriesBatch(doc, curRng, entries, eCnt, fontName, fontSize, tabPos, 0#, isBoldAll)
     
     If curRng.End - 1 > startEntriesPos Then AddBookmark doc, BM_ZONE_TOC, doc.Range(startEntriesPos, curRng.End - 1)
     Dim pM As Long

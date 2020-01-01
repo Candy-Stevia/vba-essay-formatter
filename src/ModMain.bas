@@ -66,6 +66,7 @@ Public Sub RunEngine(Optional ByVal targetDoc As Document = Nothing, Optional By
     ModRibbonCallbacks.EnsureConfigInitialized
     Dim cfg As EngineRibbonConfig
     cfg = ModRibbonCallbacks.g_Config
+    ModCustomProfile.LoadStyleProfile doc
     If g_EnableDiag Then
         ModDiag.DiagStart doc, "baseline_run"
         diagStarted = True
@@ -318,6 +319,7 @@ CleanExit:
     End If
     If screenUpdatingDisabled Then
         Application.ScreenUpdating = prevScreen
+        Application.ScreenRefresh
     End If
     If diagStarted Then
         ModDiag.DiagEnd "FAILED"
@@ -332,6 +334,9 @@ CleanExit:
             ShowListsUpdatedReport
         End If
     End If
+    ModCustomProfile.ResetStyleProfileCache
+    ModCustomProfile.ResetTagCache
+    ModTableIndex.InvalidateAllIndexes
     g_IsEngineRunning = False
 End Sub
 ' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

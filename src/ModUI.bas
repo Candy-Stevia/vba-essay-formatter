@@ -132,6 +132,11 @@ Public Sub ShowSummaryReport(ByRef stats As FormatStats, ByVal latexWarningCount
           "- " & stats.CountSubLevels & " " & ModConstants.Uni("Subheadings (M\u1ee5c con 2, 3, 4)") & vbCrLf & _
           "- " & stats.CountTables & " " & ModConstants.Uni("Tables (B\u1ea3ng bi\u1ec3u)") & vbCrLf & _
           "- " & stats.CountFigures & " " & ModConstants.Uni("Figures (H\u00ecnh \u1ea3nh)")
+    Dim styleSum As String
+    styleSum = ModCustomProfile.GetActiveStyleSummary()
+    If Len(styleSum) > 0 Then
+        msg = msg & vbCrLf & ModConstants.Uni("- Active @STYLE profile (H\u1ed3 s\u01a1 @STYLE): ") & styleSum
+    End If
           
     If latexWarningCount > 0 Then
         msg = msg & vbCrLf & vbCrLf & _
@@ -214,5 +219,96 @@ Public Sub ShowMathSummaryReport(ByVal builtCount As Long, ByVal pinkCount As Lo
         msg = msg & vbCrLf & vbCrLf & ModConstants.Uni("Tip: Click inside any Pink item and use Toggle / Edit to fix or force-convert. (G\u1ee3i \u00fd: \u0110\u1eb7t con tr\u1ecf v\u00e0o n\u1ec1n H\u1ed3ng v\u00e0 b\u1ea5m \u0110\u1ed5i / S\u1eeda.)")
     End If
     MsgBoxW msg, vbInformation, ModConstants.Uni("Done (Ho\u00e0n t\u1ea5t)")
+End Sub
+
+Public Function HasPendingMathBookmarks(ByVal doc As Document) As Boolean
+    Dim bm As Bookmark
+    For Each bm In doc.Bookmarks
+        If Left$(bm.Name, 8) = "bm_math_" Then
+            HasPendingMathBookmarks = True
+            Exit Function
+        End If
+    Next bm
+End Function
+
+Public Function ExportDocumentToPdfPathForTest(ByVal doc As Document, ByVal targetPath As String, _
+                                               Optional ByVal openAfter As Boolean = False) As String
+    On Error GoTo ErrPdf
+    If doc Is Nothing Or Len(Trim$(targetPath)) = 0 Then
+        ExportDocumentToPdfPathForTest = "ERR|INVALID_ARG"
+        Exit Function
+    End If
+    Dim pdfPath As String
+    pdfPath = Trim$(targetPath)
+    If LCase$(Right$(pdfPath, 4)) <> ".pdf" Then pdfPath = pdfPath & ".pdf"
+    doc.ExportAsFixedFormat OutputFileName:=pdfPath, ExportFormat:=17, OpenAfterExport:=openAfter, _
+                            OptimizeFor:=0, Range:=0, Item:=0, IncludeDocProps:=True, KeepIRM:=True, _
+                            CreateBookmarks:=1, DocStructureTags:=True, BitmapMissingFonts:=True, _
+                            UseISO19005_1:=False
+    ExportDocumentToPdfPathForTest = "OK|" & pdfPath
+    Exit Function
+ErrPdf:
+    ExportDocumentToPdfPathForTest = "ERR|" & Err.Number & "|" & Err.Description
+End Function
+
+Public Sub ExportDocumentToPdf(ByVal doc As Document)
+    If doc Is Nothing Then Exit Sub
+    Dim hasMrk As Boolean, hasMath As Boolean
+    hasMrk = ModMarkerLexer.HasAnySystemMarker(doc)
+    hasMath = HasPendingMathBookmarks(doc)
+    If hasMrk Or hasMath Then
+        Dim warnMsg As String
+        warnMsg = ModConstants.Uni("Warning: Document still has ")
+        If hasMrk And hasMath Then
+            warnMsg = warnMsg & ModConstants.Uni("system markers (=...()) and math shading. (C\u1ea3nh b\u00e1o: T\u00e0i li\u1ec7u v\u1eabn c\u00f2n th\u1ebb =...() v\u00e0 n\u1ec1n to\u00e1n h\u1ecdc.)")
+        ElseIf hasMrk Then
+            warnMsg = warnMsg & ModConstants.Uni("system markers (=...()). (C\u1ea3nh b\u00e1o: T\u00e0i li\u1ec7u v\u1eabn c\u00f2n th\u1ebb \u0111\u00e1nh d\u1ea5u =...().)")
+        Else
+            warnMsg = warnMsg & ModConstants.Uni("math shading/draft bookmarks. (C\u1ea3nh b\u00e1o: T\u00e0i li\u1ec7u v\u1eabn c\u00f2n n\u1ec1n to\u00e1n h\u1ecdc ch\u01b0a ch\u1ed1t.)")
+        End If
+        warnMsg = warnMsg & vbCrLf & vbCrLf & _
+                  ModConstants.Uni("Continue exporting PDF anyway? Choose No to cancel and run Finalize Math / Clean Markers first. (Ti\u1ebfp t\u1ee5c xu\u1ea5t PDF? Ch\u1ecdn No \u0111\u1ec3 h\u1ee7y v\u00e0 d\u1ecdn tr\u01b0\u1edbc.)")
+        If MsgBoxW(warnMsg, vbYesNo + vbExclamation + vbDefaultButton2, ModConstants.Uni("Export PDF Warning (C\u1ea3nh b\u00e1o xu\u1ea5t PDF)")) <> 6 Then
+            Exit Sub
+        End If
+    End If
+    Dim baseDir As String, baseName As String, dotPos As Long, defaultPdf As String
+    If Len(Trim$(doc.Path)) = 0 Or ModBackup.IsCloudPath(doc.FullName) Then
+        baseDir = ""
+        On Error Resume Next
+        baseDir = CStr(CreateObject("WScript.Shell").SpecialFolders("MyDocuments"))
+        Err.Clear
+        On Error GoTo 0
+        If Len(Trim$(baseDir)) = 0 Then baseDir = Environ$("USERPROFILE") & "\Documents"
+        If Right$(baseDir, 1) <> "\" Then baseDir = baseDir & "\"
+    Else
+        baseDir = doc.Path
+        If Right$(baseDir, 1) <> "\" Then baseDir = baseDir & "\"
+    End If
+    baseName = doc.Name
+    dotPos = InStrRev(baseName, ".")
+    If dotPos > 1 Then baseName = Left$(baseName, dotPos - 1)
+    defaultPdf = baseDir & baseName & ".pdf"
+    Dim fd As Object, k As Long, chosenPath As String
+    Set fd = Application.FileDialog(2)
+    fd.Title = ModConstants.Uni("Export PDF (Xu\u1ea5t t\u1ec7p PDF)")
+    fd.InitialFileName = defaultPdf
+    On Error Resume Next
+    For k = 1 To fd.Filters.Count
+        If InStr(1, LCase$(fd.Filters(k).Extensions), "pdf", vbBinaryCompare) > 0 Then
+            fd.FilterIndex = k
+            Exit For
+        End If
+    Next k
+    Err.Clear
+    On Error GoTo 0
+    If fd.Show <> -1 Then Exit Sub
+    chosenPath = fd.SelectedItems(1)
+    Dim res As String
+    res = ExportDocumentToPdfPathForTest(doc, chosenPath, True)
+    If Left$(res, 4) = "ERR|" Then
+        MsgBoxW ModConstants.Uni("Could not export PDF. Check if the target PDF is currently open in Chrome/Edge/Adobe Reader. (Kh\u00f4ng th\u1ec3 xu\u1ea5t PDF. H\u00e3y \u0111\u00f3ng file PDF \u0111ang m\u1edf n\u1ebfu c\u00f3.)") & _
+                vbCrLf & vbCrLf & Mid$(res, 5), vbCritical, ModConstants.Uni("Export PDF Failed (L\u1ed7i xu\u1ea5t PDF)")
+    End If
 End Sub
 ' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

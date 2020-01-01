@@ -294,6 +294,28 @@ Public Sub Ribbon_OnPreAuditScan(Optional ByVal control As Object = Nothing)
     ModCitationScan.RunPreAuditScan
 End Sub
 
+Public Sub RunResetCustomStyle()
+    If Not CanRunDocumentAction() Then
+        Exit Sub
+    End If
+    ModCustomProfile.ResetCustomProfileInteractive ActiveDocument
+End Sub
+
+Public Sub Ribbon_OnResetCustomStyle(Optional ByVal control As Object = Nothing)
+    RunResetCustomStyle
+End Sub
+
+Public Sub RunExportPdf()
+    If Not CanRunDocumentAction() Then
+        Exit Sub
+    End If
+    ModUI.ExportDocumentToPdf ActiveDocument
+End Sub
+
+Public Sub Ribbon_OnExportPdf(Optional ByVal control As Object = Nothing)
+    RunExportPdf
+End Sub
+
 Public Sub Ribbon_OnInsertMarker(ByVal control As Object)
     If control Is Nothing Then
         Exit Sub

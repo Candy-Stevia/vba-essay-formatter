@@ -114,24 +114,34 @@
           <splitButton id="sbAiPatch" size="large">
             <button id="btnAiPatchMain" label="AI Patch" imageMso="Paste"
                     screentip="Apply AI Patch from Clipboard (Ch&#x1EA1;y AI Patch t&#x1EEB; Clipboard)"
-                    supertip="Parse AF-PATCH v1 from Clipboard, link APA citations, normalize text, and build List of Acronyms. (&#x0110;&#x1ECD;c AF-PATCH v1 t&#x1EEB; Clipboard, g&#x1EAF;n link tr&#x00ED;ch d&#x1EAB;n APA v&#x00E0; d&#x1EF1;ng DM Vi&#x1EBF;t t&#x1EAF;t.)"
+                    supertip="Parse AF-PATCH v1/v2 from Clipboard (@STYLE, @TAG, @STRUCT, @REFS, @FIX, @CITE, @ACRONYMS). (&#x0110;&#x1ECD;c AF-PATCH v1/v2 t&#x1EEB; Clipboard, &#x00E1;p @STYLE/@TAG, g&#x1EAF;n link tr&#x00ED;ch d&#x1EAB;n APA v&#x00E0; d&#x1EF1;ng DM Vi&#x1EBF;t t&#x1EAF;t.)"
                     onAction="Ribbon_OnAiPatchClipboard"/>
             <menu id="mnuAiPatch">
               <button id="btnAiPatchClip" label="Apply from Clipboard (T&#x1EEB; Clipboard)" imageMso="Paste"
                       screentip="Apply AI Patch from Clipboard (Ch&#x1EA1;y t&#x1EEB; Clipboard)"
-                      supertip="Read AF-PATCH v1 text from Windows Clipboard with Dry-Run preview. (&#x0110;&#x1ECD;c AF-PATCH v1 t&#x1EEB; Clipboard v&#x00E0; x&#x00E1;c nh&#x1EAD;n Dry-Run.)"
+                      supertip="Read AF-PATCH v1/v2 text from Windows Clipboard with Dry-Run preview. (&#x0110;&#x1ECD;c AF-PATCH v1/v2 t&#x1EEB; Clipboard v&#x00E0; x&#x00E1;c nh&#x1EAD;n Dry-Run.)"
                       onAction="Ribbon_OnAiPatchClipboard"/>
               <button id="btnAiPatchFile" label="Apply from File... (T&#x1EEB; File .txt)" imageMso="FileOpen"
                       screentip="Apply AI Patch from UTF-8 .txt File (Ch&#x1EA1;y t&#x1EEB; File .txt)"
-                      supertip="Select a UTF-8 patch .txt file exported from AI Web Chat. (Ch&#x1ECD;n file .txt ch&#x1EE9;a AF-PATCH v1 t&#x1EEB; AI Web Chat.)"
+                      supertip="Select a UTF-8 patch .txt file exported from AI Web Chat (AF-PATCH v1/v2). (Ch&#x1ECD;n file .txt ch&#x1EE9;a AF-PATCH v1/v2 t&#x1EEB; AI Web Chat.)"
                       onAction="Ribbon_OnAiPatchFile"/>
               <menuSeparator id="sepAiPatch1"/>
               <button id="btnPreAuditScan" label="Pre-Audit Scan (&#x0110;&#x1EBF;m tr&#x00ED;ch d&#x1EAB;n)" imageMso="FindDialog"
                       screentip="Count EN &amp; VI APA Citations (&#x0110;&#x1EBF;m l&#x01B0;&#x1EE3;t tr&#x00ED;ch d&#x1EAB;n APA Anh-Vi&#x1EC7;t)"
                       supertip="Read-only scan of body &amp; table citations and References count, with optional Clipboard summary copy. (Qu&#x00E9;t &#x0111;&#x1EBF;m ch&#x1EC9; &#x0111;&#x1ECD;c to&#x00E0;n th&#x00E2;n b&#x00E0;i v&#x00E0; b&#x1EA3;ng, t&#x00F9;y ch&#x1ECD;n ch&#x00E9;p b&#x00E1;o c&#x00E1;o.)"
                       onAction="Ribbon_OnPreAuditScan"/>
+              <menuSeparator id="sepAiPatch2"/>
+              <button id="btnResetCustomStyle" label="Reset Custom Style (V&#x1EC1; m&#x1EB7;c &#x0111;&#x1ECB;nh)" imageMso="ClearFormatting"
+                      screentip="Reset @STYLE / @TAG Profile (X&#x00F3;a h&#x1ED3; s&#x01A1; @STYLE / @TAG v&#x1EC1; m&#x1EB7;c &#x0111;&#x1ECB;nh)"
+                      supertip="Clear saved @STYLE variables (and optionally @TAG bookmarks) and optionally re-run Format All to restore clean black default typography. (X&#x00F3;a h&#x1ED3; s&#x01A1; @STYLE v&#x00E0; t&#x00F9;y ch&#x1ECD;n ch&#x1EA1;y l&#x1EA1;i Format All &#x0111;&#x1EC3; t&#x1EA9;y m&#x00E0;u/font v&#x1EC1; m&#x1EB7;c &#x0111;&#x1ECB;nh.)"
+                      onAction="Ribbon_OnResetCustomStyle"/>
             </menu>
           </splitButton>
+          <separator id="sepExportPdf"/>
+          <button id="btnExportPdf" label="Export PDF (Xu&#x1EA5;t PDF)" size="large" imageMso="FileSaveAsPdfOrXps"
+                  screentip="Export PDF with Outline Bookmarks (Xu&#x1EA5;t PDF c&#x00F3; m&#x1EE5;c l&#x1EE5;c Bookmark)"
+                  supertip="Export the document to PDF with clickable heading bookmarks and safety checks for markers/math shading. (Xu&#x1EA5;t PDF chu&#x1EA9;n c&#x00F3; Bookmark m&#x1EE5;c l&#x1EE5;c v&#x00E0; c&#x1EA3;nh b&#x00E1;o n&#x1EBF;u c&#x00F2;n th&#x1EBB;/n&#x1EC1;n to&#x00E1;n.)"
+                  onAction="Ribbon_OnExportPdf"/>
         </group>
       </tab>
     </tabs>

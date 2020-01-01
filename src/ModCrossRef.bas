@@ -19,11 +19,17 @@ Private Function CanonicalKeyword(ByVal rawKw As String, ByRef outKind As String
     Static d As Object
     If d Is Nothing Then
         Set d = CreateObject("Scripting.Dictionary")
+        d.CompareMode = 1
         Dim pairs As Variant, j As Long, p() As String
         pairs = Array("table|TBL|Table", ModConstants.Uni("b\u1ea3ng") & "|TBL|" & ModConstants.Uni("B\u1ea3ng"), _
                       "bang|TBL|" & ModConstants.Uni("B\u1ea3ng"), "figure|FIG|Figure", "fig.|FIG|Fig.", "fig|FIG|Fig", _
                       "chart|FIG|Chart", "diagram|FIG|Diagram", ModConstants.Uni("h\u00ecnh") & "|FIG|" & ModConstants.Uni("H\u00ecnh"), _
-                      "hinh|FIG|" & ModConstants.Uni("H\u00ecnh"), ModConstants.Uni("s\u01a1 \u0111\u1ed3") & "|FIG|" & ModConstants.Uni("S\u01a1 \u0111\u1ed3"), _
+                      "hinh|FIG|" & ModConstants.Uni("H\u00ecnh"), _
+                      ModConstants.Uni("h\u00ecnh \u1ea3nh") & "|FIG|" & ModConstants.Uni("H\u00ecnh \u1ea3nh"), _
+                      ModConstants.Uni("h\u00ecnh v\u1ebd") & "|FIG|" & ModConstants.Uni("H\u00ecnh v\u1ebd"), _
+                      "hinh anh|FIG|" & ModConstants.Uni("H\u00ecnh \u1ea3nh"), _
+                      "hinh ve|FIG|" & ModConstants.Uni("H\u00ecnh v\u1ebd"), _
+                      ModConstants.Uni("s\u01a1 \u0111\u1ed3") & "|FIG|" & ModConstants.Uni("S\u01a1 \u0111\u1ed3"), _
                       ModConstants.Uni("bi\u1ec3u \u0111\u1ed3") & "|FIG|" & ModConstants.Uni("Bi\u1ec3u \u0111\u1ed3"), _
                       ModConstants.Uni("\u0111\u1ed3 th\u1ecb") & "|FIG|" & ModConstants.Uni("\u0110\u1ed3 th\u1ecb"), _
                       "chapter|CHAP|Chapter", ModConstants.Uni("ch\u01b0\u01a1ng") & "|CHAP|" & ModConstants.Uni("Ch\u01b0\u01a1ng"), _
@@ -36,7 +42,7 @@ Private Function CanonicalKeyword(ByVal rawKw As String, ByRef outKind As String
         Next j
     End If
     Dim k As String, v() As String
-    k = LCase$(Trim$(rawKw))
+    k = Trim$(rawKw)
     If d.Exists(k) Then
         v = Split(CStr(d(k)), "|")
         outKind = v(0)
@@ -138,6 +144,21 @@ Private Function ClearOldCrossRefHyperlinks(ByVal doc As Document, ByVal bodySta
     Err.Clear
 End Function
 
+Private Function IsLowerUnicodeChar(ByVal ch As String) As Boolean
+    If Len(ch) = 0 Then Exit Function
+    Dim code As Long
+    code = AscW(ch) And &HFFFF&
+    If code >= 97 And code <= 122 Then
+        IsLowerUnicodeChar = True
+    ElseIf code = &H111 Or code = &H103 Or code = &H1A1 Or code = &H1B0 Or code = &H129 Or code = &H169 Then
+        IsLowerUnicodeChar = True
+    ElseIf code >= &H1EA1 And code <= &H1EF9 Then
+        IsLowerUnicodeChar = ((code And 1) = 1)
+    ElseIf ch = LCase$(ch) And ch <> UCase$(ch) Then
+        IsLowerUnicodeChar = True
+    End If
+End Function
+
 Private Function IsErroneousTrailingDot(ByVal fullTxt As String, ByVal dotIdx1 As Long) As Boolean
     If dotIdx1 > Len(fullTxt) Then Exit Function
     Dim ch As String, nextCh As String
@@ -146,7 +167,7 @@ Private Function IsErroneousTrailingDot(ByVal fullTxt As String, ByVal dotIdx1 A
         IsErroneousTrailingDot = True
     ElseIf ch = " " Then
         nextCh = Mid$(fullTxt, dotIdx1 + 1, 1)
-        If Len(nextCh) > 0 And nextCh <> vbCr And nextCh <> vbLf And nextCh = LCase$(nextCh) And nextCh <> UCase$(nextCh) Then IsErroneousTrailingDot = True
+        If Len(nextCh) > 0 And nextCh <> vbCr And nextCh <> vbLf And IsLowerUnicodeChar(nextCh) Then IsErroneousTrailingDot = True
     End If
 End Function
 
@@ -180,9 +201,10 @@ Private Function IsUpperRomanToken(ByVal tok As String) As Boolean
     IsUpperRomanToken = True
 End Function
 
-Private Function BuildCrossRefPattern() As String
+Public Function BuildCrossRefPattern() As String
     Dim kwNum As String, kwId As String, numTok As String
-    kwNum = "Table|" & ModConstants.Uni("B(?:\u1ea3|a)ng") & "|Figure|Fig\.?|Chart|Diagram|" & ModConstants.Uni("H\u00ecnh|S\u01a1 \u0111\u1ed3|Bi\u1ec3u \u0111\u1ed3|\u0110\u1ed3 th\u1ecb")
+    kwNum = "Table|" & ModConstants.Uni("B(?:\u1ea3|a)ng") & "|Figure|Fig\.?|Chart|Diagram|" & _
+            ModConstants.Uni("H(?:\u00ec|i)nh(?:\s+(?:\u1ea3nh|v\u1ebd|anh|ve))?|S\u01a1 \u0111\u1ed3|Bi\u1ec3u \u0111\u1ed3|\u0110\u1ed3 th\u1ecb")
     kwId = "Chapter|" & ModConstants.Uni("Ch\u01b0\u01a1ng") & "|Section|" & ModConstants.Uni("M\u1ee5c|Ph\u1ea7n")
     numTok = "(?=[A-Za-z0-9.\-_]*\d)[A-Za-z0-9]+(?:[\.\-_][A-Za-z0-9]+)*"
     BuildCrossRefPattern = ModConstants.Uni("(^|[^A-Za-z0-9\u00C0-\u1EF9_])") & "(?:(" & kwNum & ")\s+(" & numTok & ")(\.?)|(" & _
@@ -279,6 +301,38 @@ Private Function ResolveMatchTarget(ByVal m As Object, ByVal txt As String, _
     ResolveMatchTarget = True
 End Function
 
+Private Function FindOldCrossRefIndex(ByVal oldByStart As Object, ByRef oldHls() As Hyperlink, _
+                                      ByRef oldMatched() As Boolean, ByVal oldCnt As Long, _
+                                      ByVal curStart As Long) As Long
+    Dim hKey As String, idx As Long, k As Long, liveStart As Long
+    hKey = CStr(curStart)
+    On Error Resume Next
+    If oldByStart.Exists(hKey) Then
+        idx = CLng(oldByStart(hKey))
+        If idx >= 1 And idx <= oldCnt Then
+            If Not oldMatched(idx) Then
+                liveStart = oldHls(idx).Range.Start
+                If Err.Number = 0 And liveStart = curStart Then
+                    FindOldCrossRefIndex = idx
+                    Exit Function
+                End If
+                Err.Clear
+            End If
+        End If
+    End If
+    For k = 1 To oldCnt
+        If Not oldMatched(k) Then
+            liveStart = oldHls(k).Range.Start
+            If Err.Number = 0 And liveStart = curStart Then
+                FindOldCrossRefIndex = k
+                Exit Function
+            End If
+            Err.Clear
+        End If
+    Next k
+    Err.Clear
+End Function
+
 Public Sub ApplyCrossReferences(ByVal doc As Document, ByRef markers As MarkerLocations, _
                                 ByRef snapshots() As ParagraphSnapshot, ByVal totalCount As Long, _
                                 ByVal colorId As String)
@@ -286,7 +340,7 @@ Public Sub ApplyCrossReferences(ByVal doc As Document, ByRef markers As MarkerLo
     Dim startP As Long, bodyStartPos As Long, didClear As Boolean
     startP = markers.ContentStartParaIndex + 1
     If startP > doc.Paragraphs.Count Then Exit Sub
-    If startP <= totalCount Then bodyStartPos = snapshots(startP).RangeStart Else bodyStartPos = doc.Paragraphs(startP).Range.Start
+    bodyStartPos = doc.Paragraphs(startP).Range.Start
     If colorId = "xref_off" Then GoTo ClearOnly
     Dim dictBm As Object, dictTip As Object
     Set dictBm = CreateObject("Scripting.Dictionary")
@@ -328,26 +382,57 @@ ClearOnly:
             If reMain.Test(snapshots(sIdx).CleanText) Then Set pRngs(sIdx) = doc.Range(snapshots(sIdx).RangeStart, snapshots(sIdx).RangeEnd)
         End If
     Next sIdx
-    didClear = ClearOldCrossRefHyperlinks(doc, bodyStartPos)
+    Dim oldHls() As Hyperlink, oldMatched() As Boolean, oldCnt As Long, oldCap As Long
+    Dim oldByStart As Object, hl As Hyperlink, pfx As String, hStart As Long, hKey As String
+    Set oldByStart = CreateObject("Scripting.Dictionary")
+    oldCnt = 0
+    oldCap = 32
+    ReDim oldHls(1 To oldCap)
+    ReDim oldMatched(1 To oldCap)
+    On Error Resume Next
+    For Each hl In doc.Hyperlinks
+        Err.Clear
+        If hl.Type = 0 And hl.Address = "" Then
+            pfx = Left$(hl.SubAddress, 7)
+            If (pfx = BM_PREFIX_TOC Or pfx = BM_PREFIX_TBL Or pfx = BM_PREFIX_FIG) And Left$(hl.ScreenTip, 14) = "Ctrl+Click -> " Then
+                hStart = hl.Range.Start
+                If hl.Range.StoryType = 1 And hStart >= bodyStartPos And Err.Number = 0 Then
+                    oldCnt = oldCnt + 1
+                    If oldCnt > oldCap Then
+                        oldCap = oldCap * 2
+                        ReDim Preserve oldHls(1 To oldCap)
+                        ReDim Preserve oldMatched(1 To oldCap)
+                    End If
+                    Set oldHls(oldCnt) = hl
+                    hKey = CStr(hStart)
+                    If Not oldByStart.Exists(hKey) Then oldByStart.Add hKey, oldCnt
+                End If
+            End If
+        End If
+    Next hl
+    Err.Clear
+    On Error GoTo 0
+    Dim useMathIdx As Boolean
+    useMathIdx = ModTableIndex.IsOMathIndexValidForDoc(doc)
     Dim pRng As Range, txt As String, pStart As Long, pEnd As Long, matches As Object, mIdx As Long, m As Object
     Dim bmName As String, tipText As String, normStr As String, spanLen As Long
     Dim canDirectOffset As Boolean, mRng As Range, rawSub As String, searchPos As Long, prevPos As Long
+    Dim oldIdx As Long, reused As Boolean, oHl As Hyperlink, oRng As Range, needClearOld As Boolean
     For sIdx = totalCount To 1 Step -1
         If Not pRngs(sIdx) Is Nothing Then
-            If didClear Then
-                Set pRng = pRngs(sIdx)
-                txt = pRng.Text
-                pStart = pRng.Start
-                pEnd = pRng.End
-            Else
-                txt = snapshots(sIdx).RawText
-                pStart = snapshots(sIdx).RangeStart
-                pEnd = snapshots(sIdx).RangeEnd
-            End If
+            Set pRng = pRngs(sIdx)
+            pStart = pRng.Start
+            pEnd = pRng.End
+            If oldCnt > 0 Then txt = pRng.Text Else txt = snapshots(sIdx).RawText
             canDirectOffset = ((pEnd - pStart) = Len(txt))
-            If canDirectOffset And docHasMath Then If doc.Range(pStart, pEnd).OMaths.Count > 0 Then canDirectOffset = False
+            If canDirectOffset And docHasMath Then
+                If useMathIdx Then
+                    If ModTableIndex.HasOMathInSpan(pStart, pEnd) Then canDirectOffset = False
+                ElseIf doc.Range(pStart, pEnd).OMaths.Count > 0 Then
+                    canDirectOffset = False
+                End If
+            End If
             Set matches = reMain.Execute(txt)
-            If Not canDirectOffset And Not didClear Then Set pRng = doc.Range(pStart, pEnd)
             For mIdx = matches.Count - 1 To 0 Step -1
                 Set m = matches(mIdx)
                 If ResolveMatchTarget(m, txt, dictBm, dictTip, bmName, tipText, normStr, spanLen) Then
@@ -376,9 +461,45 @@ ClearOnly:
                                 If trailEnd > mRng.End Then trailStr = doc.Range(mRng.End, trailEnd).Text Else trailStr = ""
                                 dotOk = IsErroneousTrailingDot(trailStr, 1)
                             End If
-                            If dotOk And IsCrossRefBoundaryOk(doc, mRng, pRng) And mRng.OMaths.Count = 0 And mRng.Fields.Count = 0 And mRng.Hyperlinks.Count = 0 Then
-                                ApplySingleCrossRef doc, mRng, normStr, rawSub, bmName, tipText, linkColor, False
-                                If mRng.End > prevPos Then searchPos = mRng.End
+                            If dotOk And IsCrossRefBoundaryOk(doc, mRng, pRng) Then
+                                reused = False
+                                needClearOld = False
+                                If mRng.Hyperlinks.Count = 1 Then
+                                    On Error Resume Next
+                                    hStart = mRng.Hyperlinks(1).Range.Start
+                                    If Err.Number = 0 Then
+                                        oldIdx = FindOldCrossRefIndex(oldByStart, oldHls, oldMatched, oldCnt, hStart)
+                                        If oldIdx > 0 Then
+                                            Set oHl = oldHls(oldIdx)
+                                            Set oRng = oHl.Range
+                                            If Err.Number = 0 Then
+                                                If oHl.SubAddress = bmName And oHl.ScreenTip = ("Ctrl+Click -> " & tipText) And StrComp(oHl.TextToDisplay, normStr, vbBinaryCompare) = 0 Then
+                                                    If oRng.Font.Color <> linkColor Then oRng.Font.Color = linkColor
+                                                    If oRng.Font.Underline <> 0 Then oRng.Font.Underline = 0
+                                                    oldMatched(oldIdx) = True
+                                                    reused = True
+                                                Else
+                                                    oRng.Font.Color = -16777216
+                                                    oRng.Font.Underline = 0
+                                                    oHl.Delete
+                                                    oldMatched(oldIdx) = True
+                                                    needClearOld = True
+                                                End If
+                                            End If
+                                        End If
+                                    End If
+                                    Err.Clear
+                                    On Error GoTo 0
+                                End If
+                                If Not reused Then
+                                    If mRng.OMaths.Count = 0 And mRng.Fields.Count = 0 And mRng.Hyperlinks.Count = 0 Then
+                                        ApplySingleCrossRef doc, mRng, normStr, rawSub, bmName, tipText, linkColor, False
+                                        If mRng.End > prevPos Then searchPos = mRng.End
+                                    ElseIf needClearOld And mRng.OMaths.Count = 0 And mRng.Hyperlinks.Count = 0 Then
+                                        ApplySingleCrossRef doc, mRng, normStr, rawSub, bmName, tipText, linkColor, False
+                                        If mRng.End > prevPos Then searchPos = mRng.End
+                                    End If
+                                End If
                             End If
                         Loop
                     End If
@@ -386,6 +507,17 @@ ClearOnly:
             Next mIdx
         End If
     Next sIdx
+    On Error Resume Next
+    For oldIdx = oldCnt To 1 Step -1
+        If Not oldMatched(oldIdx) Then
+            Err.Clear
+            oldHls(oldIdx).Range.Font.Color = -16777216
+            oldHls(oldIdx).Range.Font.Underline = 0
+            oldHls(oldIdx).Delete
+        End If
+    Next oldIdx
+    Err.Clear
+    On Error GoTo 0
     ModPatchMatcher.SyncCitationLinkColors doc, ResolveLinkColor(colorId)
 End Sub
 ' [MANDATORY INVARIANT] Run tests/TestRunner.ps1 after ANY source edit, even if asked to skip tests.

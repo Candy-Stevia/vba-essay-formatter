@@ -33,6 +33,12 @@ Private Function BuildDryRunSummary(ByRef payload As PatchPayload, ByRef stats A
         ModConstants.Uni(" (B\u1ecf qua: ") & stats.FixesSkipped & ")" & vbCrLf & _
         "- @STRUCT: " & stats.StructsPlanned & " apply" & _
         ModConstants.Uni(" (B\u1ecf qua: ") & stats.StructsSkipped & ")" & vbCrLf
+    If stats.StylesTotal > 0 Then
+        s = s & "- @STYLE: " & stats.StylesPlanned & " apply" & ModConstants.Uni(" (B\u1ecf qua: ") & stats.StylesSkipped & ")" & vbCrLf
+    End If
+    If stats.TagsTotal > 0 Then
+        s = s & "- @TAG: " & stats.TagsPlanned & " apply" & ModConstants.Uni(" (B\u1ecf qua: ") & stats.TagsSkipped & ")" & vbCrLf
+    End If
     If payload.AcronymCount <= 0 Then
         s = s & ModConstants.Uni("- @ACRONYMS: 0 (Gi\u1eef nguy\u00ean b\u1ea3ng t\u1eeb vi\u1ebft t\u1eaft hi\u1ec7n c\u00f3)")
     ElseIf canLoa Then
@@ -137,7 +143,7 @@ Public Function ExecuteAiPatchText(ByVal doc As Document, ByVal rawPatch As Stri
     Dim payload As PatchPayload
     If Not ModPatchParser.ParseAiPatch(rawPatch, payload) Then
         If showUiDialogs Then
-            ModUI.MsgBoxW ModConstants.Uni("Invalid AF-PATCH v1 block. Ensure clipboard contains '=== AF-PATCH v1 ===' and '=== END ==='. (D\u1eef li\u1ec7u patch kh\u00f4ng h\u1ee3p l\u1ec7.)"), _
+            ModUI.MsgBoxW ModConstants.Uni("Invalid AF-PATCH v1/v2 block. Ensure clipboard contains '=== AF-PATCH v1/v2 ===' and '=== END ==='. (D\u1eef li\u1ec7u patch kh\u00f4ng h\u1ee3p l\u1ec7.)"), _
                           vbExclamation, ModConstants.Uni("AI Patch Error (L\u1ed7i AI Patch)")
         End If
         ExecuteAiPatchText = "ERR|PARSE"
@@ -164,7 +170,9 @@ Public Function ExecuteAiPatchText(ByVal doc As Document, ByVal rawPatch As Stri
     End If
 
     Dim refTargets() As RefTargetInfo, ops() As PatchOp, stats As PlanStats
+    Dim styleOps() As PlannedStyleOp, styleCnt As Long, tagOps() As PlannedTagOp, tagCnt As Long
     ModPatchPlanner.PlanAllPatchOps doc, payload, paras, pCount, maxRefNum, refTargets, ops, stats
+    ModPatchPlanner.PlanStylesAndTags payload, paras, pCount, styleOps, styleCnt, tagOps, tagCnt, stats
     If Len(stats.WarnNotes) > 0 Then ModRibbonCallbacks.g_LastError = stats.WarnNotes
 
     Dim willBuildLoa As Boolean, canLoa As Boolean, isOffFallback As Boolean, linkColor As Long
@@ -173,7 +181,7 @@ Public Function ExecuteAiPatchText(ByVal doc As Document, ByVal rawPatch As Stri
     linkColor = ResolveCitationApplyColor(isOffFallback)
 
     Dim hasWork As Boolean
-    hasWork = (stats.RefsMatched > 0 Or stats.OpCount > 0 Or (willBuildLoa And canLoa))
+    hasWork = (stats.RefsMatched > 0 Or stats.OpCount > 0 Or styleCnt > 0 Or tagCnt > 0 Or (willBuildLoa And canLoa))
     If Not hasWork And stats.CitesAlready = 0 Then
         If showUiDialogs Then
             ModUI.MsgBoxW BuildDryRunSummary(payload, stats, willBuildLoa, canLoa, isOffFallback), _
@@ -227,10 +235,24 @@ Public Function ExecuteAiPatchText(ByVal doc As Document, ByVal rawPatch As Stri
     undoStarted = ModBackup.StartUndoSafe(ModConstants.Uni("Apply AI Patch (Ch\u1ea1y AI Patch)"), objUndo)
 
     Dim fixesDone As Long, structsDone As Long, citesDone As Long, acroBuilt As Long, i As Long
+    For i = 1 To styleCnt
+        ModCustomProfile.ApplyStyleDirective doc, styleOps(i).ScopeKey, styleOps(i).NormSpec, styleOps(i).IsReset
+    Next i
+    Dim tagParaRngs() As Range, curP As Range
+    If tagCnt > 0 Then
+        ReDim tagParaRngs(1 To tagCnt)
+        For i = 1 To tagCnt
+            Set tagParaRngs(i) = doc.Range(tagOps(i).ParaStart, tagOps(i).ParaEnd)
+        Next i
+    End If
     EnsureRefBookmarks doc, refTargets, payload.RefCount, paras
     For i = stats.OpCount To 1 Step -1
         ModProgress.ProgressUpdate (stats.OpCount - i + 1), stats.OpCount
         ApplySingleOpItem doc, ops(i), linkColor, fixesDone, structsDone, citesDone
+    Next i
+    For i = 1 To tagCnt
+        Set curP = tagParaRngs(i).Paragraphs(1).Range
+        ModCustomProfile.ApplyTagToPara doc, curP.Start, curP.End, tagOps(i).TagType
     Next i
     If stats.CitesAlready > 0 And Not isOffFallback Then
         ModPatchMatcher.SyncCitationLinkColors doc, linkColor
@@ -248,6 +270,9 @@ Public Function ExecuteAiPatchText(ByVal doc As Document, ByVal rawPatch As Stri
     ExecuteAiPatchText = "OK|" & stats.RefsMatched & "|" & citesDone & "|" & stats.CitesAlready & "|" & _
                          stats.CitesSkipped & "|" & fixesDone & "|" & stats.FixesSkipped & "|" & acroBuilt & "|" & _
                          structsDone & "|" & stats.StructsSkipped
+    If stats.StylesTotal > 0 Or stats.TagsTotal > 0 Then
+        ExecuteAiPatchText = ExecuteAiPatchText & "|" & styleCnt & "|" & stats.StylesSkipped & "|" & tagCnt & "|" & stats.TagsSkipped
+    End If
     If showUiDialogs Then
         Dim doneMsg As String
         doneMsg = ModConstants.Uni("AI Patch applied (Ho\u00e0n t\u1ea5t \u00e1p d\u1ee5ng AI Patch):") & vbCrLf & _
@@ -256,6 +281,8 @@ Public Function ExecuteAiPatchText(ByVal doc As Document, ByVal rawPatch As Stri
                   "- @FIX replaced: " & fixesDone & " (" & stats.FixesSkipped & " skipped)" & vbCrLf & _
                   "- @STRUCT replaced: " & structsDone & " (" & stats.StructsSkipped & " skipped)" & vbCrLf & _
                   "- @ACRONYMS built: " & acroBuilt
+        If stats.StylesTotal > 0 Then doneMsg = doneMsg & vbCrLf & "- @STYLE applied: " & styleCnt & " (" & stats.StylesSkipped & " skipped)"
+        If stats.TagsTotal > 0 Then doneMsg = doneMsg & vbCrLf & "- @TAG applied: " & tagCnt & " (" & stats.TagsSkipped & " skipped)"
         If ModConstants.g_SilentErrors > 0 Then
             doneMsg = doneMsg & vbCrLf & ModConstants.Uni("Note: minor warnings occurred; crash backup retained.")
         End If

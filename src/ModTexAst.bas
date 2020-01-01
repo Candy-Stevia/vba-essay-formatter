@@ -168,17 +168,34 @@ Public Function ExpectTok(ByVal tType As Integer, Optional ByVal valStr As Strin
 End Function
 
 Public Function FindMatching(ByVal openType As Integer, ByVal closeType As Integer) As Long
-    Dim depth As Long
-    Dim i As Long
+    Dim depth As Long, dBrace As Long, dEnv As Long, i As Long, tt As Integer
     depth = 0
+    dBrace = 0
+    dEnv = 0
     For i = mPos To mTokenCount
-        If mTokens(i).TokType = openType Then
+        tt = mTokens(i).TokType
+        If tt = TOK_EOF Then Exit Function
+        If tt = openType Then
             depth = depth + 1
-        ElseIf mTokens(i).TokType = closeType Then
+        ElseIf tt = closeType Then
             depth = depth - 1
             If depth = 0 Then
                 FindMatching = i
                 Exit Function
+            End If
+        ElseIf openType <> TOK_LBRACE And tt = TOK_LBRACE Then
+            dBrace = dBrace + 1
+        ElseIf openType <> TOK_LBRACE And tt = TOK_RBRACE Then
+            If dBrace = 0 Then Exit Function
+            dBrace = dBrace - 1
+        ElseIf (tt = TOK_AMP Or tt = TOK_NEWLINE) And dEnv = 0 Then
+            Exit Function
+        ElseIf tt = TOK_CMD Then
+            If mTokens(i).Val = "\begin" Then
+                dEnv = dEnv + 1
+            ElseIf mTokens(i).Val = "\end" Then
+                If dEnv = 0 Then Exit Function
+                dEnv = dEnv - 1
             End If
         End If
     Next i

@@ -61,13 +61,36 @@ Public Sub ComputeLatexFlags(ByVal doc As Document, _
     outLatexWarningCount = 0
     If totalParas = 0 Then Exit Sub
     ReDim outIsLatex(1 To totalParas)
-    
-    Dim p As Paragraph, pTexts() As String, kIdx As Long
+
+    Dim hasToken As Boolean, fRng As Range
+    Set fRng = doc.Content.Duplicate
+    ModMathHelpers.InitDomFind fRng.Find, "$$"
+    fRng.Find.MatchCase = False
+    hasToken = fRng.Find.Execute
+    If Not hasToken Then
+        Set fRng = doc.Content.Duplicate
+        ModMathHelpers.InitDomFind fRng.Find, "\["
+        fRng.Find.MatchCase = False
+        hasToken = fRng.Find.Execute
+    End If
+    If Not hasToken Then
+        Set fRng = doc.Content.Duplicate
+        ModMathHelpers.InitDomFind fRng.Find, "\begin{"
+        fRng.Find.MatchCase = False
+        hasToken = fRng.Find.Execute
+    End If
+    If Not hasToken Then Exit Sub
+
+    ModTableIndex.EnsureTableIndex doc
+    Dim p As Paragraph, pTexts() As String, pStarts() As Long, kIdx As Long, pRng As Range
     ReDim pTexts(1 To totalParas)
+    ReDim pStarts(1 To totalParas)
     kIdx = 0
     For Each p In doc.Paragraphs
         kIdx = kIdx + 1
-        pTexts(kIdx) = Trim$(Replace(Replace(Replace(p.Range.Text, vbCr, ""), Chr(7), ""), Chr(11), " "))
+        Set pRng = p.Range
+        pStarts(kIdx) = pRng.Start
+        pTexts(kIdx) = Trim$(Replace(Replace(Replace(pRng.Text, vbCr, ""), Chr(7), ""), Chr(11), " "))
     Next p
     
     Dim i As Long
@@ -127,13 +150,13 @@ Public Sub ComputeLatexFlags(ByVal doc As Document, _
                 maxLimit = i + LATEX_MAX_SPAN
                 If maxLimit > totalParas Then maxLimit = totalParas
                 foundEnd = 0
-                startInTbl = CBool(doc.Paragraphs(i).Range.Information(12))
+                startInTbl = ModTableIndex.IsPosInTable(pStarts(i))
                 
                 For j = i + 1 To maxLimit
                     Dim scanText As String
                     scanText = pTexts(j)
                     If LCase$(scanText) = "=contentend()" Then Exit For
-                    If CBool(doc.Paragraphs(j).Range.Information(12)) <> startInTbl Then Exit For
+                    If ModTableIndex.IsPosInTable(pStarts(j)) <> startInTbl Then Exit For
                     If openType = 1 Or openType = 2 Then
                         Dim sDd As Long, sClose As Long, sOpen As Long
                         If Left$(scanText, 2) = "$$" And Len(scanText) > 2 Then
